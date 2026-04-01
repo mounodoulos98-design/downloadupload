@@ -593,8 +593,6 @@ class App:
                 with self._open_connection() as ssh:
                     sftp = ssh.open_sftp()
                     try:
-                        file_size = os.path.getsize(local_file)
-
                         def _cb(transferred, total):
                             pct = (transferred / total * 100
                                    if total > 0 else 0)
