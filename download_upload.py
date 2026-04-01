@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import subprocess
 import os
 import re
 import shlex
@@ -8,6 +7,12 @@ import secrets
 import threading
 import platform
 from datetime import datetime, timedelta
+from contextlib import contextmanager
+
+try:
+    import paramiko
+except ImportError:
+    paramiko = None
 
 try:
     from tkcalendar import DateEntry
@@ -78,6 +83,88 @@ def _configure_styles():
     style.configure("Treeview", font=("Segoe UI", 9), rowheight=24)
     style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
 
+    style.configure("Auth.TLabel", background=BG, font=("Segoe UI", 9))
+
+
+# ---------------------------------------------------------------------------
+# Password dialog
+# ---------------------------------------------------------------------------
+class PasswordDialog(tk.Toplevel):
+    """Modal dialog asking for relay and local server passwords."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.transient(parent)
+        self.title("\U0001F512 SSH Authentication")
+        self.resizable(False, False)
+        self.result = None
+
+        main = ttk.Frame(self, padding=20)
+        main.pack(fill="both", expand=True)
+
+        # Title
+        ttk.Label(main, text="Enter SSH Passwords",
+                  font=("Segoe UI", 12, "bold"),
+                  foreground=ACCENT).pack(pady=(0, 12))
+
+        # Relay server password
+        ttk.Label(main, text="Password for Relay Server:",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(main, text=f"({JUMP_USER}@{JUMP_HOST}:{JUMP_PORT})",
+                  foreground="grey", font=("Segoe UI", 9)).pack(anchor="w")
+        self.relay_entry = ttk.Entry(main, show="\u25CF", width=40,
+                                     font=("Segoe UI", 10))
+        self.relay_entry.pack(fill="x", pady=(4, 12))
+
+        # Local server password
+        ttk.Label(main, text="Password for Local Server:",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(main, text=f"({REMOTE_USER}@{REMOTE_HOST}:<port>)",
+                  foreground="grey", font=("Segoe UI", 9)).pack(anchor="w")
+        self.local_entry = ttk.Entry(main, show="\u25CF", width=40,
+                                     font=("Segoe UI", 10))
+        self.local_entry.pack(fill="x", pady=(4, 16))
+
+        # Buttons
+        btn_frame = ttk.Frame(main)
+        btn_frame.pack(fill="x")
+        ttk.Button(btn_frame, text="\u2714  Connect", style="Green.TButton",
+                   command=self._ok).pack(side="right")
+        ttk.Button(btn_frame, text="Cancel",
+                   command=self._cancel).pack(side="right", padx=(0, 8))
+
+        # Bindings
+        self.relay_entry.focus_set()
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Return>", lambda e: self._ok())
+        self.bind("<Escape>", lambda e: self._cancel())
+
+        # Center on parent
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() -
+                                     self.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() -
+                                     self.winfo_height()) // 2
+        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+        self.grab_set()
+        self.wait_window()
+
+    def _ok(self):
+        relay = self.relay_entry.get()
+        local = self.local_entry.get()
+        if not relay or not local:
+            messagebox.showwarning("Missing Password",
+                                   "Both passwords are required.",
+                                   parent=self)
+            return
+        self.result = (relay, local)
+        self.destroy()
+
+    def _cancel(self):
+        self.result = None
+        self.destroy()
+
 
 # ---------------------------------------------------------------------------
 # Application
@@ -86,11 +173,15 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("SCP Tool \u2014 Upload / Download / Batch Search")
-        self.root.geometry("860x680")
-        self.root.minsize(780, 620)
+        self.root.geometry("860x720")
+        self.root.minsize(780, 660)
         self.root.configure(bg=BG)
 
         _configure_styles()
+
+        # -- passwords (stored in memory only) --------------------------------
+        self._relay_pw = None
+        self._local_pw = None
 
         # -- shared variables ------------------------------------------------
         self.remote_port = tk.StringVar(value="39022")
@@ -104,16 +195,34 @@ class App:
         ttk.Entry(conn, textvariable=self.remote_port, width=12).grid(
             row=0, column=1, padx=(0, 12), pady=6)
 
+        ttk.Button(conn, text="\U0001F512 Login",
+                   command=self._prompt_passwords).grid(
+            row=0, column=2, padx=(0, 8), pady=6)
+
+        self._auth_var = tk.StringVar(value="\u274C Not authenticated")
+        self._auth_label = ttk.Label(conn, textvariable=self._auth_var,
+                                     style="Auth.TLabel", foreground=RED)
+        self._auth_label.grid(row=0, column=3, padx=8, sticky="w")
+
         info_text = (f"Jump: {JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}  \u2192  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
         ttk.Label(conn, text=info_text, foreground="grey").grid(
-            row=0, column=2, padx=8, sticky="w")
+            row=1, column=0, columnspan=4, padx=8, pady=(0, 4), sticky="w")
 
-        # -- status bar (pack early so it stays at bottom) -------------------
+        # -- progress bar + status bar (pack early so they stay at bottom) ---
+        bottom = ttk.Frame(root)
+        bottom.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
+
+        self.progress_var = tk.DoubleVar(value=0)
+        self.progress_bar = ttk.Progressbar(bottom,
+                                            variable=self.progress_var,
+                                            maximum=100,
+                                            mode="determinate")
+        self.progress_bar.pack(fill="x", pady=(0, 2))
+
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(root, textvariable=self.status_var,
-                  style="Status.TLabel").pack(side="bottom", fill="x",
-                                               padx=12, pady=(0, 8))
+        ttk.Label(bottom, textvariable=self.status_var,
+                  style="Status.TLabel").pack(fill="x")
 
         # -- notebook --------------------------------------------------------
         self.notebook = ttk.Notebook(root)
@@ -121,6 +230,121 @@ class App:
 
         self._build_upload_download_tab()
         self._build_batch_search_tab()
+
+    # -----------------------------------------------------------------------
+    # Authentication
+    # -----------------------------------------------------------------------
+    def _prompt_passwords(self):
+        """Show the password dialog and store credentials."""
+        dlg = PasswordDialog(self.root)
+        if dlg.result is not None:
+            self._relay_pw, self._local_pw = dlg.result
+            self._auth_var.set("\u2705 Authenticated")
+            self._auth_label.configure(foreground=GREEN)
+
+    def _ensure_passwords(self):
+        """Make sure passwords are available; prompt if not."""
+        if self._relay_pw and self._local_pw:
+            return True
+        self._prompt_passwords()
+        return bool(self._relay_pw and self._local_pw)
+
+    def _clear_passwords(self):
+        """Clear stored credentials (e.g. after auth failure)."""
+        self._relay_pw = None
+        self._local_pw = None
+        self.root.after(0, self._update_auth_indicator_disconnected)
+
+    def _update_auth_indicator_disconnected(self):
+        self._auth_var.set("\u274C Not authenticated")
+        self._auth_label.configure(foreground=RED)
+
+    # -----------------------------------------------------------------------
+    # SSH connection (paramiko)
+    # -----------------------------------------------------------------------
+    @contextmanager
+    def _open_connection(self):
+        """Context manager yielding a paramiko SSHClient connected to the
+        remote server through the jump host.
+
+        Raises ``ConnectionError`` with a user-friendly message on failure.
+        """
+        jump = paramiko.SSHClient()
+        jump.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        remote = paramiko.SSHClient()
+        remote.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        try:
+            # 1. Connect to relay / jump host
+            try:
+                jump.connect(
+                    JUMP_HOST,
+                    port=int(JUMP_PORT),
+                    username=JUMP_USER,
+                    password=self._relay_pw,
+                    timeout=15,
+                    allow_agent=False,
+                    look_for_keys=False,
+                )
+            except paramiko.AuthenticationException:
+                raise ConnectionError(
+                    "Relay server authentication failed.\n"
+                    "Please check the relay password.")
+            except Exception as exc:
+                raise ConnectionError(
+                    f"Cannot reach relay server:\n{exc}")
+
+            # 2. Open forwarded channel to the remote host
+            try:
+                transport = jump.get_transport()
+                channel = transport.open_channel(
+                    "direct-tcpip",
+                    (REMOTE_HOST, int(self.remote_port.get())),
+                    ("127.0.0.1", 0),
+                )
+            except Exception as exc:
+                raise ConnectionError(
+                    f"Cannot open tunnel to local server:\n{exc}")
+
+            # 3. Connect to the remote host through the tunnel
+            try:
+                remote.connect(
+                    REMOTE_HOST,
+                    username=REMOTE_USER,
+                    password=self._local_pw,
+                    sock=channel,
+                    timeout=15,
+                    allow_agent=False,
+                    look_for_keys=False,
+                )
+            except paramiko.AuthenticationException:
+                raise ConnectionError(
+                    "Local server authentication failed.\n"
+                    "Please check the local server password.")
+            except Exception as exc:
+                raise ConnectionError(
+                    f"Cannot connect to local server:\n{exc}")
+
+            yield remote
+
+        finally:
+            try:
+                remote.close()
+            except Exception:
+                pass
+            try:
+                jump.close()
+            except Exception:
+                pass
+
+    def _ssh_exec(self, ssh_client, cmd, timeout=60):
+        """Execute *cmd* on the connected *ssh_client* and return
+        ``(stdout_str, stderr_str, exit_code)``."""
+        _stdin, stdout, stderr = ssh_client.exec_command(cmd, timeout=timeout)
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        code = stdout.channel.recv_exit_status()
+        return out, err, code
 
     # -----------------------------------------------------------------------
     # Tab 1 – Upload / Download
@@ -149,8 +373,10 @@ class App:
         ttk.Button(row, text="Browse File",
                    command=self._browse_file).pack(side="right")
 
-        ttk.Button(uf, text="\u2B06  UPLOAD", style="Green.TButton",
-                   command=self._upload).pack(pady=(0, 8))
+        self._upload_btn = ttk.Button(uf, text="\u2B06  UPLOAD",
+                                      style="Green.TButton",
+                                      command=self._upload)
+        self._upload_btn.pack(pady=(0, 8))
 
         # Download
         df = ttk.LabelFrame(tab, text="Download")
@@ -164,8 +390,10 @@ class App:
         ttk.Button(row2, text="Browse Folder",
                    command=self._browse_folder).pack(side="right")
 
-        ttk.Button(df, text="\u2B07  DOWNLOAD", style="Blue.TButton",
-                   command=self._download).pack(pady=(0, 8))
+        self._download_btn = ttk.Button(df, text="\u2B07  DOWNLOAD",
+                                        style="Blue.TButton",
+                                        command=self._download)
+        self._download_btn.pack(pady=(0, 8))
 
     # -----------------------------------------------------------------------
     # Tab 2 – Batch Search
@@ -317,9 +545,10 @@ class App:
                    command=self._browse_dest).pack(side="left", padx=(0, 4))
         ttk.Entry(af, textvariable=self.dest_var, width=28).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(af, text="\u2B07  Download Selected",
-                   style="Green.TButton",
-                   command=self._download_selected).pack(side="right")
+        self._dl_sel_btn = ttk.Button(af, text="\u2B07  Download Selected",
+                                      style="Green.TButton",
+                                      command=self._download_selected)
+        self._dl_sel_btn.pack(side="right")
 
     # -----------------------------------------------------------------------
     # Upload / Download helpers
@@ -339,64 +568,128 @@ class App:
         if p:
             self.dest_var.set(p)
 
-    def _run_interactive(self, cmd):
-        """Open an SCP / SSH command in a visible console (original behaviour)."""
-        try:
-            if IS_WINDOWS:
-                full_cmd = " ".join(cmd)
-                subprocess.Popen(
-                    ["powershell", "-NoExit", "-Command", full_cmd],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
-            else:
-                # On Linux / macOS open a terminal emulator
-                subprocess.Popen(cmd)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
     def _upload(self):
-        if not self.file_path.get():
-            messagebox.showerror("Error", "Select a file to upload")
+        local_file = self.file_path.get().strip()
+        if not local_file:
+            messagebox.showerror("Error", "Select a file to upload.")
             return
-        cmd = [
-            "scp", "-P", self.remote_port.get(),
-            "-J", f"{JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}",
-            self.file_path.get(),
-            f"{REMOTE_USER}@{REMOTE_HOST}:{self.remote_path.get()}",
-        ]
-        self._run_interactive(cmd)
+        if not os.path.isfile(local_file):
+            messagebox.showerror("Error", f"File not found:\n{local_file}")
+            return
+        if not self._ensure_passwords():
+            return
+
+        remote_dest = self.remote_path.get().strip()
+        if remote_dest.endswith("/"):
+            remote_dest += os.path.basename(local_file)
+
+        self._upload_btn.state(["disabled"])
+        self.status_var.set("Connecting for upload \u2026")
+        self.progress_var.set(0)
+        self.root.update_idletasks()
+
+        def _worker():
+            try:
+                with self._open_connection() as ssh:
+                    sftp = ssh.open_sftp()
+                    try:
+                        file_size = os.path.getsize(local_file)
+
+                        def _cb(transferred, total):
+                            pct = (transferred / total * 100
+                                   if total > 0 else 0)
+                            self.root.after(0, lambda p=pct: (
+                                self.progress_var.set(p),
+                                self.status_var.set(
+                                    f"Uploading\u2026 {p:.0f}%")))
+
+                        sftp.put(local_file, remote_dest, callback=_cb)
+                    finally:
+                        sftp.close()
+
+                self.root.after(0, lambda: (
+                    messagebox.showinfo(
+                        "Success",
+                        f"Uploaded to:\n{remote_dest}"),
+                    self.status_var.set("Upload complete"),
+                    self.progress_var.set(100)))
+
+            except ConnectionError as exc:
+                self._clear_passwords()
+                self.root.after(0, lambda: (
+                    messagebox.showerror("Connection Error", str(exc)),
+                    self.status_var.set("Upload failed"),
+                    self.progress_var.set(0)))
+            except Exception as exc:
+                self.root.after(0, lambda: (
+                    messagebox.showerror("Upload Error", str(exc)),
+                    self.status_var.set("Upload failed"),
+                    self.progress_var.set(0)))
+            finally:
+                self.root.after(
+                    0, lambda: self._upload_btn.state(["!disabled"]))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _download(self):
-        if not self.local_path.get():
-            messagebox.showerror("Error", "Select local destination folder")
+        dest_folder = self.local_path.get().strip()
+        if not dest_folder:
+            messagebox.showerror("Error", "Select local destination folder.")
             return
-        cmd = [
-            "scp", "-P", self.remote_port.get(),
-            "-J", f"{JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}",
-            f"{REMOTE_USER}@{REMOTE_HOST}:{self.remote_path.get()}",
-            self.local_path.get(),
-        ]
-        self._run_interactive(cmd)
+        remote_src = self.remote_path.get().strip()
+        if not remote_src:
+            messagebox.showerror("Error", "Specify a remote path.")
+            return
+        if not self._ensure_passwords():
+            return
 
-    # -----------------------------------------------------------------------
-    # SSH helpers (batch search)
-    # -----------------------------------------------------------------------
-    def _ssh_command(self, remote_cmd, timeout=60):
-        """Run *remote_cmd* on the remote host via the jump host and return
-        the completed process.  The command string is passed as a single
-        argument to ``ssh`` so the remote shell interprets it."""
-        cmd = [
-            "ssh",
-            "-p", self.remote_port.get(),
-            "-J", f"{JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=15",
-            f"{REMOTE_USER}@{REMOTE_HOST}",
-            "--",
-            remote_cmd,
-        ]
-        return subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=timeout)
+        local_file = os.path.join(dest_folder, os.path.basename(remote_src))
+
+        self._download_btn.state(["disabled"])
+        self.status_var.set("Connecting for download \u2026")
+        self.progress_var.set(0)
+        self.root.update_idletasks()
+
+        def _worker():
+            try:
+                with self._open_connection() as ssh:
+                    sftp = ssh.open_sftp()
+                    try:
+                        def _cb(transferred, total):
+                            pct = (transferred / total * 100
+                                   if total > 0 else 0)
+                            self.root.after(0, lambda p=pct: (
+                                self.progress_var.set(p),
+                                self.status_var.set(
+                                    f"Downloading\u2026 {p:.0f}%")))
+
+                        sftp.get(remote_src, local_file, callback=_cb)
+                    finally:
+                        sftp.close()
+
+                self.root.after(0, lambda: (
+                    messagebox.showinfo(
+                        "Success",
+                        f"Downloaded to:\n{local_file}"),
+                    self.status_var.set("Download complete"),
+                    self.progress_var.set(100)))
+
+            except ConnectionError as exc:
+                self._clear_passwords()
+                self.root.after(0, lambda: (
+                    messagebox.showerror("Connection Error", str(exc)),
+                    self.status_var.set("Download failed"),
+                    self.progress_var.set(0)))
+            except Exception as exc:
+                self.root.after(0, lambda: (
+                    messagebox.showerror("Download Error", str(exc)),
+                    self.status_var.set("Download failed"),
+                    self.progress_var.set(0)))
+            finally:
+                self.root.after(
+                    0, lambda: self._download_btn.state(["!disabled"]))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     # -----------------------------------------------------------------------
     # Date / time helpers
@@ -490,53 +783,61 @@ class App:
                                  "'From' must be earlier than 'To'.")
             return
 
+        if not self._ensure_passwords():
+            return
+
         self._search_btn.state(["disabled"])
         self.status_var.set("Connecting via SSH \u2026")
+        self.progress_var.set(0)
         self.root.update_idletasks()
 
         def _worker():
             try:
-                find_cmd = (
-                    f"find {shlex.quote(BATCHES_PATH)} "
-                    f"-type f -name '*.zip' 2>/dev/null"
-                )
-                result = self._ssh_command(find_cmd, timeout=60)
+                with self._open_connection() as ssh:
+                    self.root.after(
+                        0, lambda: self.status_var.set(
+                            "Searching for zip files \u2026"))
 
-                if result.returncode != 0 and not result.stdout.strip():
-                    self.root.after(0, lambda: messagebox.showerror(
-                        "SSH Error", result.stderr or "Connection failed."))
-                    return
+                    find_cmd = (
+                        f"find {shlex.quote(BATCHES_PATH)} "
+                        f"-type f -name '*.zip' 2>/dev/null"
+                    )
+                    out, err, code = self._ssh_exec(ssh, find_cmd, timeout=60)
 
-                lines = [l for l in result.stdout.strip().splitlines()
-                         if l.strip()]
+                    if code != 0 and not out.strip():
+                        self.root.after(0, lambda: messagebox.showerror(
+                            "SSH Error", err or "Command failed."))
+                        return
 
-                matches = []
-                for line in lines:
-                    info = self._parse_zip(line)
-                    if info is None:
-                        continue
-                    if info["system_id"] not in sys_ids:
-                        continue
-                    if serial_filter and info["serial"] != serial_filter:
-                        continue
-                    if not (from_dt <= info["dt"] <= to_dt):
-                        continue
-                    matches.append(info)
+                    lines = [l for l in out.strip().splitlines() if l.strip()]
 
-                matches.sort(key=lambda x: (x["dt"], x["system_id"]))
+                    matches = []
+                    for line in lines:
+                        info = self._parse_zip(line)
+                        if info is None:
+                            continue
+                        if info["system_id"] not in sys_ids:
+                            continue
+                        if serial_filter and info["serial"] != serial_filter:
+                            continue
+                        if not (from_dt <= info["dt"] <= to_dt):
+                            continue
+                        matches.append(info)
 
-                self.root.after(0, self._show_results, matches)
+                    matches.sort(key=lambda x: (x["dt"], x["system_id"]))
+                    self.root.after(0, self._show_results, matches)
 
-            except subprocess.TimeoutExpired:
+            except ConnectionError as exc:
+                self._clear_passwords()
                 self.root.after(0, lambda: messagebox.showerror(
-                    "Timeout", "SSH connection timed out."))
-                self.root.after(0,
-                                lambda: self.status_var.set("Search timed out"))
+                    "Connection Error", str(exc)))
+                self.root.after(
+                    0, lambda: self.status_var.set("Search failed"))
             except Exception as exc:
                 self.root.after(0, lambda: messagebox.showerror(
                     "Error", str(exc)))
-                self.root.after(0,
-                                lambda: self.status_var.set("Search failed"))
+                self.root.after(
+                    0, lambda: self.status_var.set("Search failed"))
             finally:
                 self.root.after(
                     0, lambda: self._search_btn.state(["!disabled"]))
@@ -599,8 +900,13 @@ class App:
                                  "No valid server paths in selection.")
             return
 
+        if not self._ensure_passwords():
+            return
+
+        self._dl_sel_btn.state(["disabled"])
         self.status_var.set(
             f"Preparing download of {len(paths)} file(s) \u2026")
+        self.progress_var.set(0)
         self.root.update_idletasks()
 
         def _worker():
@@ -609,57 +915,64 @@ class App:
             remote_zip = f"/tmp/batch_dl_{ts}_{rand}.zip"
             local_zip = os.path.join(dest, f"batch_download_{ts}.zip")
             try:
-                # 1. Create zip on the remote server (-j stores without dirs)
-                quoted_paths = " ".join(shlex.quote(p) for p in paths)
-                zip_cmd = (f"zip -j {shlex.quote(remote_zip)} {quoted_paths}")
-                zr = self._ssh_command(zip_cmd, timeout=120)
-                if zr.returncode != 0:
-                    self.root.after(0, lambda: messagebox.showerror(
-                        "Error",
-                        f"Remote zip failed:\n{zr.stderr or zr.stdout}"))
-                    return
+                with self._open_connection() as ssh:
+                    # 1. Create zip on the remote server
+                    self.root.after(
+                        0, lambda: self.status_var.set(
+                            "Creating zip on server \u2026"))
+                    quoted_paths = " ".join(shlex.quote(p) for p in paths)
+                    zip_cmd = (f"zip -j {shlex.quote(remote_zip)} "
+                               f"{quoted_paths}")
+                    out, err, code = self._ssh_exec(ssh, zip_cmd, timeout=120)
+                    if code != 0:
+                        self.root.after(0, lambda: messagebox.showerror(
+                            "Error",
+                            f"Remote zip failed:\n{err or out}"))
+                        return
 
-                # 2. SCP the zip to local machine
-                self.root.after(
-                    0, lambda: self.status_var.set("Downloading zip \u2026"))
-                scp_cmd = [
-                    "scp",
-                    "-P", self.remote_port.get(),
-                    "-J", f"{JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}",
-                    "-o", "StrictHostKeyChecking=no",
-                    f"{REMOTE_USER}@{REMOTE_HOST}:{remote_zip}",
-                    local_zip,
-                ]
-                sr = subprocess.run(scp_cmd, capture_output=True, text=True,
-                                    timeout=600)
-                if sr.returncode != 0:
-                    self.root.after(0, lambda: messagebox.showerror(
-                        "SCP Error", sr.stderr or "Download failed."))
-                    return
+                    # 2. Download the zip via SFTP
+                    self.root.after(
+                        0, lambda: self.status_var.set(
+                            "Downloading zip \u2026"))
+                    sftp = ssh.open_sftp()
+                    try:
+                        def _cb(transferred, total):
+                            pct = (transferred / total * 100
+                                   if total > 0 else 0)
+                            self.root.after(0, lambda p=pct: (
+                                self.progress_var.set(p),
+                                self.status_var.set(
+                                    f"Downloading\u2026 {p:.0f}%")))
 
-                self.root.after(0, lambda: messagebox.showinfo(
-                    "Success",
-                    f"Downloaded {len(paths)} file(s) to:\n{local_zip}"))
-                self.root.after(
-                    0, lambda: self.status_var.set("Download complete"))
+                        sftp.get(remote_zip, local_zip, callback=_cb)
+                    finally:
+                        sftp.close()
 
-            except subprocess.TimeoutExpired:
-                self.root.after(0, lambda: messagebox.showerror(
-                    "Timeout", "Download timed out."))
-                self.root.after(
-                    0, lambda: self.status_var.set("Download timed out"))
+                    # 3. Remove the temp zip on the server
+                    self._ssh_exec(
+                        ssh, f"rm -f {shlex.quote(remote_zip)}", timeout=15)
+
+                self.root.after(0, lambda: (
+                    messagebox.showinfo(
+                        "Success",
+                        f"Downloaded {len(paths)} file(s) to:\n{local_zip}"),
+                    self.status_var.set("Download complete"),
+                    self.progress_var.set(100)))
+
+            except ConnectionError as exc:
+                self._clear_passwords()
+                self.root.after(0, lambda: (
+                    messagebox.showerror("Connection Error", str(exc)),
+                    self.status_var.set("Download failed"),
+                    self.progress_var.set(0)))
             except Exception as exc:
-                self.root.after(0, lambda: messagebox.showerror(
-                    "Error", str(exc)))
-                self.root.after(
-                    0, lambda: self.status_var.set("Download failed"))
+                self.root.after(0, lambda: (
+                    messagebox.showerror("Error", str(exc)),
+                    self.status_var.set("Download failed"),
+                    self.progress_var.set(0)))
             finally:
-                # 3. Always try to remove the temp zip on the server
-                try:
-                    self._ssh_command(
-                        f"rm -f {shlex.quote(remote_zip)}", timeout=15)
-                except Exception:
-                    pass
+                self.root.after(
+                    0, lambda: self._dl_sel_btn.state(["!disabled"]))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -668,6 +981,16 @@ class App:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    if paramiko is None:
+        _r = tk.Tk()
+        _r.withdraw()
+        messagebox.showerror(
+            "Missing Dependency",
+            "The 'paramiko' library is required.\n\n"
+            "Install it with:\n  pip install paramiko")
+        _r.destroy()
+        raise SystemExit(1)
+
     root = tk.Tk()
     App(root)
     root.mainloop()
