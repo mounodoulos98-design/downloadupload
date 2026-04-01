@@ -4,6 +4,7 @@ import subprocess
 import os
 import re
 import shlex
+import secrets
 import threading
 import platform
 from datetime import datetime, timedelta
@@ -604,7 +605,8 @@ class App:
 
         def _worker():
             ts = datetime.now().strftime("%Y%m%d%H%M%S")
-            remote_zip = f"/tmp/batch_dl_{ts}.zip"
+            rand = secrets.token_hex(8)
+            remote_zip = f"/tmp/batch_dl_{ts}_{rand}.zip"
             local_zip = os.path.join(dest, f"batch_download_{ts}.zip")
             try:
                 # 1. Create zip on the remote server (-j stores without dirs)
