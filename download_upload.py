@@ -3,7 +3,6 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import re
 import shlex
-import secrets
 import threading
 import platform
 from datetime import datetime, timedelta
@@ -506,12 +505,19 @@ class App:
         self.tree = ttk.Treeview(rf, columns=cols, show="headings",
                                  selectmode="extended")
 
-        self.tree.heading("filename", text="Filename")
-        self.tree.heading("folder", text="Folder")
-        self.tree.heading("datetime", text="Date / Time")
-        self.tree.heading("system_id", text="System ID")
-        self.tree.heading("serial", text="Serial #")
-        self.tree.heading("full_path", text="Server Path")
+        for col, label in (("filename", "Filename"),
+                           ("folder", "Folder"),
+                           ("datetime", "Date / Time"),
+                           ("system_id", "System ID"),
+                           ("serial", "Serial #"),
+                           ("full_path", "Server Path")):
+            self.tree.heading(
+                col, text=label,
+                command=lambda c=col: self._sort_tree(c))
+
+        # Track current sort state
+        self._sort_col = None
+        self._sort_asc = True
 
         self.tree.column("filename", width=220, minwidth=140)
         self.tree.column("folder", width=90, minwidth=60)
@@ -870,6 +876,56 @@ class App:
         self.tree.selection_remove(*self.tree.get_children())
 
     # -----------------------------------------------------------------------
+    # Column sorting
+    # -----------------------------------------------------------------------
+    def _sort_tree(self, col):
+        """Sort the results Treeview by *col*, toggling direction."""
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+
+        rows = [(self.tree.set(iid, col), iid) for iid in
+                self.tree.get_children()]
+
+        # For numeric columns use numeric sort
+        if col in ("system_id", "serial"):
+            def key_fn(item):
+                try:
+                    return int(item[0])
+                except ValueError:
+                    return item[0]
+        elif col == "datetime":
+            def key_fn(item):
+                try:
+                    return datetime.strptime(item[0], "%d/%m/%Y %H:%M")
+                except ValueError:
+                    return item[0]
+        else:
+            def key_fn(item):
+                return item[0].lower()
+
+        rows.sort(key=key_fn, reverse=not self._sort_asc)
+
+        for idx, (_val, iid) in enumerate(rows):
+            self.tree.move(iid, "", idx)
+
+        # Update heading arrows
+        arrow = " \u25B2" if self._sort_asc else " \u25BC"
+        col_labels = {
+            "filename": "Filename",
+            "folder": "Folder",
+            "datetime": "Date / Time",
+            "system_id": "System ID",
+            "serial": "Serial #",
+            "full_path": "Server Path",
+        }
+        for c, label in col_labels.items():
+            suffix = arrow if c == col else ""
+            self.tree.heading(c, text=label + suffix)
+
+    # -----------------------------------------------------------------------
     # Download selected files
     # -----------------------------------------------------------------------
     def _download_selected(self):
@@ -908,52 +964,40 @@ class App:
         self.root.update_idletasks()
 
         def _worker():
-            ts = datetime.now().strftime("%Y%m%d%H%M%S")
-            rand = secrets.token_hex(8)
-            remote_zip = f"/tmp/batch_dl_{ts}_{rand}.zip"
-            local_zip = os.path.join(dest, f"batch_download_{ts}.zip")
             try:
                 with self._open_connection() as ssh:
-                    # 1. Create zip on the remote server
-                    self.root.after(
-                        0, lambda: self.status_var.set(
-                            "Creating zip on server \u2026"))
-                    quoted_paths = " ".join(shlex.quote(p) for p in paths)
-                    zip_cmd = (f"zip -j {shlex.quote(remote_zip)} "
-                               f"{quoted_paths}")
-                    out, err, code = self._ssh_exec(ssh, zip_cmd, timeout=120)
-                    if code != 0:
-                        self.root.after(0, lambda: messagebox.showerror(
-                            "Error",
-                            f"Remote zip failed:\n{err or out}"))
-                        return
-
-                    # 2. Download the zip via SFTP
-                    self.root.after(
-                        0, lambda: self.status_var.set(
-                            "Downloading zip \u2026"))
                     sftp = ssh.open_sftp()
                     try:
-                        def _cb(transferred, total):
-                            pct = (transferred / total * 100
-                                   if total > 0 else 0)
-                            self.root.after(0, lambda p=pct: (
-                                self.progress_var.set(p),
-                                self.status_var.set(
-                                    f"Downloading\u2026 {p:.0f}%")))
+                        total = len(paths)
+                        for idx, remote_path in enumerate(paths, 1):
+                            fname = os.path.basename(remote_path)
+                            local_file = os.path.join(dest, fname)
 
-                        sftp.get(remote_zip, local_zip, callback=_cb)
+                            # Avoid overwriting: add suffix if file exists
+                            base, ext = os.path.splitext(fname)
+                            counter = 1
+                            while os.path.exists(local_file):
+                                local_file = os.path.join(
+                                    dest, f"{base}_{counter}{ext}")
+                                counter += 1
+
+                            self.root.after(0, lambda i=idx, t=total,
+                                            f=fname: (
+                                self.status_var.set(
+                                    f"Downloading {i}/{t}: {f}"),
+                                self.progress_var.set(
+                                    (i - 1) / t * 100)))
+
+                            sftp.get(remote_path, local_file)
+
+                        self.root.after(0, lambda: self.progress_var.set(100))
                     finally:
                         sftp.close()
-
-                    # 3. Remove the temp zip on the server
-                    self._ssh_exec(
-                        ssh, f"rm -f {shlex.quote(remote_zip)}", timeout=15)
 
                 self.root.after(0, lambda: (
                     messagebox.showinfo(
                         "Success",
-                        f"Downloaded {len(paths)} file(s) to:\n{local_zip}"),
+                        f"Downloaded {len(paths)} file(s) to:\n{dest}"),
                     self.status_var.set("Download complete"),
                     self.progress_var.set(100)))
 
