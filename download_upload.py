@@ -1,5 +1,7 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
+import tkinter as tk          # still needed for StringVar, DoubleVar, Treeview
+from tkinter import ttk       # Treeview has no CTk equivalent
 import os
 import re
 import shlex
@@ -15,10 +17,15 @@ except ImportError:
 
 try:
     from tkcalendar import DateEntry
-
     HAS_TKCALENDAR = True
 except ImportError:
     HAS_TKCALENDAR = False
+
+try:
+    import pywinstyles
+    HAS_PYWINSTYLES = True
+except ImportError:
+    HAS_PYWINSTYLES = False
 
 # ---------------------------------------------------------------------------
 # Connection constants
@@ -39,56 +46,69 @@ IS_WINDOWS = platform.system() == "Windows"
 ZIP_RE = re.compile(r"^(\d{12})_(\d+)_(\d+)\.zip$")
 
 # ---------------------------------------------------------------------------
-# Colours / style helpers
+# CustomTkinter appearance
 # ---------------------------------------------------------------------------
-BG = "#f5f6fa"
-ACCENT = "#2c3e50"
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+# Accent colours used in a few places
 GREEN = "#27ae60"
+GREEN_HOVER = "#2ecc71"
 BLUE = "#2980b9"
-RED = "#c0392b"
-LIGHT = "#ecf0f1"
+BLUE_HOVER = "#3498db"
+RED = "#e74c3c"
+RED_HOVER = "#c0392b"
+LABEL_FG = "#dcdde1"
+MUTED_FG = "#7f8c8d"
+HEADING_FG = "#f5f6fa"
 
 
-def _configure_styles():
+def _setup_treeview_style():
+    """Style the Treeview (which is still a classic ttk widget) so it looks
+    at home inside the dark CustomTkinter window."""
     style = ttk.Style()
-    try:
-        style.theme_use("clam")
-    except tk.TclError:
-        pass
+    style.theme_use("clam")
 
-    style.configure("TFrame", background=BG)
-    style.configure("TLabel", background=BG, font=("Segoe UI", 10))
-    style.configure("TLabelframe", background=BG, font=("Segoe UI", 10, "bold"))
-    style.configure("TLabelframe.Label", background=BG, foreground=ACCENT)
-    style.configure("TEntry", padding=4)
-    style.configure("TButton", padding=6, font=("Segoe UI", 10))
-    style.configure("TNotebook", background=BG)
-    style.configure("TNotebook.Tab", padding=[14, 6], font=("Segoe UI", 10, "bold"))
+    dark_bg = "#2b2b2b"
+    dark_fg = "#dcdde1"
+    sel_bg = "#3498db"
+    heading_bg = "#343638"
 
-    style.configure("Green.TButton", foreground="white", background=GREEN,
-                     font=("Segoe UI", 10, "bold"))
-    style.map("Green.TButton", background=[("active", "#2ecc71")])
+    style.configure("Dark.Treeview",
+                    background=dark_bg,
+                    foreground=dark_fg,
+                    fieldbackground=dark_bg,
+                    font=("Segoe UI", 9),
+                    rowheight=26,
+                    borderwidth=0)
+    style.configure("Dark.Treeview.Heading",
+                    background=heading_bg,
+                    foreground="#ecf0f1",
+                    font=("Segoe UI", 9, "bold"),
+                    relief="flat")
+    style.map("Dark.Treeview",
+              background=[("selected", sel_bg)],
+              foreground=[("selected", "white")])
+    style.map("Dark.Treeview.Heading",
+              background=[("active", "#3e4042")])
 
-    style.configure("Blue.TButton", foreground="white", background=BLUE,
-                     font=("Segoe UI", 10, "bold"))
-    style.map("Blue.TButton", background=[("active", "#3498db")])
-
-    style.configure("Red.TButton", foreground="white", background=RED,
-                     font=("Segoe UI", 10, "bold"))
-
-    style.configure("Status.TLabel", background=LIGHT, font=("Segoe UI", 9),
-                     relief="sunken", anchor="w", padding=(6, 3))
-
-    style.configure("Treeview", font=("Segoe UI", 9), rowheight=24)
-    style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
-
-    style.configure("Auth.TLabel", background=BG, font=("Segoe UI", 9))
+    # Scrollbar styling
+    style.configure("Dark.Vertical.TScrollbar",
+                    background=heading_bg,
+                    troughcolor=dark_bg,
+                    borderwidth=0,
+                    arrowsize=14)
+    style.configure("Dark.Horizontal.TScrollbar",
+                    background=heading_bg,
+                    troughcolor=dark_bg,
+                    borderwidth=0,
+                    arrowsize=14)
 
 
 # ---------------------------------------------------------------------------
 # Password dialog
 # ---------------------------------------------------------------------------
-class PasswordDialog(tk.Toplevel):
+class PasswordDialog(ctk.CTkToplevel):
     """Modal dialog asking for relay and local server passwords."""
 
     def __init__(self, parent):
@@ -98,39 +118,49 @@ class PasswordDialog(tk.Toplevel):
         self.resizable(False, False)
         self.result = None
 
-        main = ttk.Frame(self, padding=20)
-        main.pack(fill="both", expand=True)
+        self.configure(fg_color=("#f0f0f0", "#2b2b2b"))
+
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(fill="both", expand=True, padx=24, pady=20)
 
         # Title
-        ttk.Label(main, text="Enter SSH Passwords",
-                  font=("Segoe UI", 12, "bold"),
-                  foreground=ACCENT).pack(pady=(0, 12))
+        ctk.CTkLabel(main, text="Enter SSH Passwords",
+                     font=ctk.CTkFont("Segoe UI", 16, "bold")).pack(
+            pady=(0, 16))
 
         # Relay server password
-        ttk.Label(main, text="Password for Relay Server:",
-                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Label(main, text=f"({JUMP_USER}@{JUMP_HOST}:{JUMP_PORT})",
-                  foreground="grey", font=("Segoe UI", 9)).pack(anchor="w")
-        self.relay_entry = ttk.Entry(main, show="\u25CF", width=40,
-                                     font=("Segoe UI", 10))
-        self.relay_entry.pack(fill="x", pady=(4, 12))
+        ctk.CTkLabel(main, text="Password for Relay Server:",
+                     font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
+            anchor="w")
+        ctk.CTkLabel(main,
+                     text=f"({JUMP_USER}@{JUMP_HOST}:{JUMP_PORT})",
+                     text_color=MUTED_FG,
+                     font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
+        self.relay_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
+                                        font=ctk.CTkFont("Segoe UI", 12))
+        self.relay_entry.pack(fill="x", pady=(6, 14))
 
         # Local server password
-        ttk.Label(main, text="Password for Local Server:",
-                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Label(main, text=f"({REMOTE_USER}@{REMOTE_HOST}:<port>)",
-                  foreground="grey", font=("Segoe UI", 9)).pack(anchor="w")
-        self.local_entry = ttk.Entry(main, show="\u25CF", width=40,
-                                     font=("Segoe UI", 10))
-        self.local_entry.pack(fill="x", pady=(4, 16))
+        ctk.CTkLabel(main, text="Password for Local Server:",
+                     font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
+            anchor="w")
+        ctk.CTkLabel(main,
+                     text=f"({REMOTE_USER}@{REMOTE_HOST}:<port>)",
+                     text_color=MUTED_FG,
+                     font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
+        self.local_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
+                                        font=ctk.CTkFont("Segoe UI", 12))
+        self.local_entry.pack(fill="x", pady=(6, 20))
 
         # Buttons
-        btn_frame = ttk.Frame(main)
+        btn_frame = ctk.CTkFrame(main, fg_color="transparent")
         btn_frame.pack(fill="x")
-        ttk.Button(btn_frame, text="\u2714  Connect", style="Green.TButton",
-                   command=self._ok).pack(side="right")
-        ttk.Button(btn_frame, text="Cancel",
-                   command=self._cancel).pack(side="right", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text="Cancel", width=100,
+                      fg_color="gray40", hover_color="gray50",
+                      command=self._cancel).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(btn_frame, text="\u2714  Connect", width=140,
+                      fg_color=GREEN, hover_color=GREEN_HOVER,
+                      command=self._ok).pack(side="right")
 
         # Bindings
         self.relay_entry.focus_set()
@@ -169,65 +199,82 @@ class PasswordDialog(tk.Toplevel):
 # Application
 # ---------------------------------------------------------------------------
 class App:
-    def __init__(self, root):
+    def __init__(self, root: ctk.CTk):
         self.root = root
         self.root.title("SCP Tool \u2014 Upload / Download / Batch Search")
-        self.root.geometry("900x740")
+        self.root.geometry("940x760")
         self.root.minsize(700, 560)
-        self.root.configure(bg=BG)
 
-        _configure_styles()
+        # Apply acrylic / mica on Windows if pywinstyles is available
+        if IS_WINDOWS and HAS_PYWINSTYLES:
+            try:
+                pywinstyles.apply_style(self.root, "acrylic")
+            except Exception:
+                pass  # Silently ignore if not supported on this OS version
+
+        _setup_treeview_style()
 
         # -- passwords (stored in memory only) --------------------------------
         self._relay_pw = None
         self._local_pw = None
 
-        # -- shared variables ------------------------------------------------
+        # -- shared variables -------------------------------------------------
         self.remote_port = tk.StringVar(value="39022")
 
-        # -- connection bar --------------------------------------------------
-        conn = ttk.LabelFrame(root, text="Connection Settings")
-        conn.pack(fill="x", padx=10, pady=(8, 4))
-        conn.columnconfigure(3, weight=1)
+        # -- connection bar ---------------------------------------------------
+        conn_frame = ctk.CTkFrame(root, corner_radius=10)
+        conn_frame.pack(fill="x", padx=12, pady=(10, 4))
 
-        ttk.Label(conn, text="Remote Port:").grid(row=0, column=0, padx=(8, 4),
-                                                   pady=4, sticky="w")
-        ttk.Entry(conn, textvariable=self.remote_port, width=10).grid(
-            row=0, column=1, padx=(0, 8), pady=4)
+        top_row = ctk.CTkFrame(conn_frame, fg_color="transparent")
+        top_row.pack(fill="x", padx=12, pady=(10, 2))
 
-        ttk.Button(conn, text="\U0001F512 Login",
-                   command=self._prompt_passwords).grid(
-            row=0, column=2, padx=(0, 8), pady=4)
+        ctk.CTkLabel(top_row, text="Remote Port:",
+                     font=ctk.CTkFont("Segoe UI", 12)).pack(
+            side="left", padx=(0, 6))
+        ctk.CTkEntry(top_row, textvariable=self.remote_port,
+                     width=80, font=ctk.CTkFont("Segoe UI", 12)).pack(
+            side="left", padx=(0, 12))
+
+        ctk.CTkButton(top_row, text="\U0001F512 Login", width=110,
+                      command=self._prompt_passwords).pack(
+            side="left", padx=(0, 12))
 
         self._auth_var = tk.StringVar(value="\u274C Not authenticated")
-        self._auth_label = ttk.Label(conn, textvariable=self._auth_var,
-                                     style="Auth.TLabel", foreground=RED)
-        self._auth_label.grid(row=0, column=3, padx=8, sticky="w")
+        self._auth_label = ctk.CTkLabel(top_row,
+                                        textvariable=self._auth_var,
+                                        text_color=RED,
+                                        font=ctk.CTkFont("Segoe UI", 11))
+        self._auth_label.pack(side="left", padx=4)
 
         info_text = (f"Jump: {JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}  \u2192  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
-        ttk.Label(conn, text=info_text, foreground="grey",
-                  font=("Segoe UI", 8)).grid(
-            row=1, column=0, columnspan=4, padx=8, pady=(0, 3), sticky="w")
+        ctk.CTkLabel(conn_frame, text=info_text,
+                     text_color=MUTED_FG,
+                     font=ctk.CTkFont("Segoe UI", 9)).pack(
+            anchor="w", padx=14, pady=(0, 8))
 
-        # -- progress bar + status bar (pack early so they stay at bottom) ---
-        bottom = ttk.Frame(root)
-        bottom.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
+        # -- progress bar + status (pack early so they stay at bottom) --------
+        bottom = ctk.CTkFrame(root, fg_color="transparent")
+        bottom.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
 
         self.progress_var = tk.DoubleVar(value=0)
-        self.progress_bar = ttk.Progressbar(bottom,
-                                            variable=self.progress_var,
-                                            maximum=100,
-                                            mode="determinate")
-        self.progress_bar.pack(fill="x", pady=(0, 2))
+        self.progress_bar = ctk.CTkProgressBar(bottom, variable=self.progress_var,
+                                                height=8)
+        self.progress_bar.pack(fill="x", pady=(0, 4))
+        self.progress_bar.set(0)
 
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(bottom, textvariable=self.status_var,
-                  style="Status.TLabel").pack(fill="x")
+        ctk.CTkLabel(bottom, textvariable=self.status_var,
+                     font=ctk.CTkFont("Segoe UI", 10),
+                     text_color=MUTED_FG,
+                     anchor="w").pack(fill="x")
 
-        # -- notebook --------------------------------------------------------
-        self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill="both", expand=True, padx=10, pady=4)
+        # -- tabview ----------------------------------------------------------
+        self.tabview = ctk.CTkTabview(root, corner_radius=10)
+        self.tabview.pack(fill="both", expand=True, padx=12, pady=6)
+
+        self.tabview.add("Upload / Download")
+        self.tabview.add("Batch Search")
 
         self._build_upload_download_tab()
         self._build_batch_search_tab()
@@ -236,41 +283,33 @@ class App:
     # Authentication
     # -----------------------------------------------------------------------
     def _prompt_passwords(self):
-        """Show the password dialog and store credentials."""
         dlg = PasswordDialog(self.root)
         if dlg.result is not None:
             self._relay_pw, self._local_pw = dlg.result
             self._auth_var.set("\u2705 Authenticated")
-            self._auth_label.configure(foreground=GREEN)
+            self._auth_label.configure(text_color=GREEN)
 
     def _ensure_passwords(self):
-        """Make sure passwords are available; prompt if not."""
         if self._relay_pw and self._local_pw:
             return True
         self._prompt_passwords()
         return bool(self._relay_pw and self._local_pw)
 
     def _clear_passwords(self):
-        """Clear stored credentials (e.g. after auth failure)."""
         self._relay_pw = None
         self._local_pw = None
         self.root.after(0, self._update_auth_indicator_disconnected)
 
     def _update_auth_indicator_disconnected(self):
         self._auth_var.set("\u274C Not authenticated")
-        self._auth_label.configure(foreground=RED)
+        self._auth_label.configure(text_color=RED)
 
     # -----------------------------------------------------------------------
     # Path helpers
     # -----------------------------------------------------------------------
     @staticmethod
     def _normalize_path(path):
-        """Strip surrounding quotes and whitespace from user-entered paths.
-
-        Users often copy-paste paths from file explorers or terminals that
-        include surrounding quotes – this breaks ``os.path.isfile`` and
-        similar checks.
-        """
+        """Strip surrounding quotes and whitespace from user-entered paths."""
         path = path.strip()
         if len(path) >= 2:
             if (path[0] == '"' and path[-1] == '"') or \
@@ -284,17 +323,13 @@ class App:
     @contextmanager
     def _open_connection(self):
         """Context manager yielding a paramiko SSHClient connected to the
-        remote server through the jump host.
-
-        Raises ``ConnectionError`` with a user-friendly message on failure.
-        """
+        remote server through the jump host."""
         jump = paramiko.SSHClient()
         jump.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         remote = paramiko.SSHClient()
         remote.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         try:
-            # 1. Connect to relay / jump host
             try:
                 jump.connect(
                     JUMP_HOST,
@@ -313,7 +348,6 @@ class App:
                 raise ConnectionError(
                     f"Cannot reach relay server:\n{exc}")
 
-            # 2. Open forwarded channel to the remote host
             try:
                 transport = jump.get_transport()
                 channel = transport.open_channel(
@@ -325,7 +359,6 @@ class App:
                 raise ConnectionError(
                     f"Cannot open tunnel to local server:\n{exc}")
 
-            # 3. Connect to the remote host through the tunnel
             try:
                 remote.connect(
                     REMOTE_HOST,
@@ -357,8 +390,6 @@ class App:
                 pass
 
     def _ssh_exec(self, ssh_client, cmd, timeout=60):
-        """Execute *cmd* on the connected *ssh_client* and return
-        ``(stdout_str, stderr_str, exit_code)``."""
         _stdin, stdout, stderr = ssh_client.exec_command(cmd, timeout=timeout)
         out = stdout.read().decode("utf-8", errors="replace")
         err = stderr.read().decode("utf-8", errors="replace")
@@ -366,195 +397,267 @@ class App:
         return out, err, code
 
     # -----------------------------------------------------------------------
+    # Progress helpers  (CTkProgressBar uses 0..1 range)
+    # -----------------------------------------------------------------------
+    def _set_progress(self, pct):
+        """Set progress bar from a percentage (0-100)."""
+        self.progress_bar.set(pct / 100.0)
+
+    # -----------------------------------------------------------------------
     # Tab 1 – Upload / Download
     # -----------------------------------------------------------------------
     def _build_upload_download_tab(self):
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="  Upload / Download  ")
+        tab = self.tabview.tab("Upload / Download")
 
-        # Remote path
-        pf = ttk.LabelFrame(tab, text="Remote Linux Path")
-        pf.pack(fill="x", pady=(0, 6))
+        # Remote path section
+        pf = ctk.CTkFrame(tab, corner_radius=8)
+        pf.pack(fill="x", padx=4, pady=(4, 8))
+
+        ctk.CTkLabel(pf, text="Remote Linux Path",
+                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 2))
         self.remote_path = tk.StringVar(
             value="/home/hat/Downloads/pythonscripts/")
-        ttk.Entry(pf, textvariable=self.remote_path,
-                  font=("Segoe UI", 10)).pack(fill="x", padx=8, pady=(4, 2))
-        ttk.Label(pf,
-                  text=("\u2139  Upload: destination directory (ending with /)  "
-                        "|  Download: full path to remote file"),
-                  foreground="grey", font=("Segoe UI", 8)).pack(
-            anchor="w", padx=8, pady=(0, 4))
+        ctk.CTkEntry(pf, textvariable=self.remote_path,
+                     font=ctk.CTkFont("Segoe UI", 12)).pack(
+            fill="x", padx=12, pady=(0, 2))
+        ctk.CTkLabel(pf,
+                     text=("\u2139  Upload: destination dir (ending with /)  "
+                           "|  Download: full file path"),
+                     text_color=MUTED_FG,
+                     font=ctk.CTkFont("Segoe UI", 10)).pack(
+            anchor="w", padx=12, pady=(0, 8))
 
-        # Upload
-        uf = ttk.LabelFrame(tab, text="\u2B06  Upload")
-        uf.pack(fill="x", pady=(0, 6))
+        # Upload section
+        uf = ctk.CTkFrame(tab, corner_radius=8)
+        uf.pack(fill="x", padx=4, pady=(0, 8))
+
+        ctk.CTkLabel(uf, text="\u2B06  Upload",
+                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 4))
+
+        upload_row = ctk.CTkFrame(uf, fg_color="transparent")
+        upload_row.pack(fill="x", padx=12, pady=(0, 4))
 
         self.file_path = tk.StringVar()
-        row = ttk.Frame(uf)
-        row.pack(fill="x", padx=8, pady=(4, 2))
-        ttk.Label(row, text="Local File:", width=10).pack(
-            side="left", padx=(0, 4))
-        ttk.Entry(row, textvariable=self.file_path,
-                  font=("Segoe UI", 10)).pack(
-            side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(row, text="\U0001F4C2 Browse\u2026",
-                   command=self._browse_file).pack(side="right")
+        ctk.CTkLabel(upload_row, text="Local File:",
+                     font=ctk.CTkFont("Segoe UI", 11), width=80).pack(
+            side="left", padx=(0, 6))
+        ctk.CTkEntry(upload_row, textvariable=self.file_path,
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(upload_row, text="\U0001F4C2 Browse\u2026",
+                      width=110, command=self._browse_file).pack(side="right")
 
-        self._upload_btn = ttk.Button(uf, text="\u2B06  UPLOAD",
-                                      style="Green.TButton",
-                                      command=self._upload)
-        self._upload_btn.pack(pady=(2, 6))
+        self._upload_btn = ctk.CTkButton(
+            uf, text="\u2B06  UPLOAD", width=180, height=36,
+            fg_color=GREEN, hover_color=GREEN_HOVER,
+            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            command=self._upload)
+        self._upload_btn.pack(pady=(4, 10))
 
-        # Download
-        df = ttk.LabelFrame(tab, text="\u2B07  Download")
-        df.pack(fill="x")
+        # Download section
+        df = ctk.CTkFrame(tab, corner_radius=8)
+        df.pack(fill="x", padx=4, pady=(0, 4))
+
+        ctk.CTkLabel(df, text="\u2B07  Download",
+                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 4))
+
+        dl_row = ctk.CTkFrame(df, fg_color="transparent")
+        dl_row.pack(fill="x", padx=12, pady=(0, 4))
 
         self.local_path = tk.StringVar()
-        row2 = ttk.Frame(df)
-        row2.pack(fill="x", padx=8, pady=(4, 2))
-        ttk.Label(row2, text="Save To:", width=10).pack(
-            side="left", padx=(0, 4))
-        ttk.Entry(row2, textvariable=self.local_path,
-                  font=("Segoe UI", 10)).pack(
-            side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(row2, text="\U0001F4C1 Browse\u2026",
-                   command=self._browse_folder).pack(side="right")
+        ctk.CTkLabel(dl_row, text="Save To:",
+                     font=ctk.CTkFont("Segoe UI", 11), width=80).pack(
+            side="left", padx=(0, 6))
+        ctk.CTkEntry(dl_row, textvariable=self.local_path,
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(dl_row, text="\U0001F4C1 Browse\u2026",
+                      width=110, command=self._browse_folder).pack(side="right")
 
-        self._download_btn = ttk.Button(df, text="\u2B07  DOWNLOAD",
-                                        style="Blue.TButton",
-                                        command=self._download)
-        self._download_btn.pack(pady=(2, 6))
+        self._download_btn = ctk.CTkButton(
+            df, text="\u2B07  DOWNLOAD", width=180, height=36,
+            fg_color=BLUE, hover_color=BLUE_HOVER,
+            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            command=self._download)
+        self._download_btn.pack(pady=(4, 10))
 
     # -----------------------------------------------------------------------
     # Tab 2 – Batch Search
     # -----------------------------------------------------------------------
     def _build_batch_search_tab(self):
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="  Batch Search  ")
+        tab = self.tabview.tab("Batch Search")
 
-        # -- search criteria -------------------------------------------------
-        cf = ttk.LabelFrame(tab, text="Search Criteria")
-        cf.pack(fill="x", pady=(0, 6))
+        # -- search criteria --------------------------------------------------
+        cf = ctk.CTkFrame(tab, corner_radius=8)
+        cf.pack(fill="x", padx=4, pady=(4, 6))
 
-        # Date / Time rows (split into two rows for narrow windows)
-        dt_frame = ttk.Frame(cf)
-        dt_frame.pack(fill="x", padx=8, pady=(6, 4))
+        ctk.CTkLabel(cf, text="Search Criteria",
+                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 4))
 
-        # FROM (row 0)
-        ttk.Label(dt_frame, text="From:", font=("Segoe UI", 10, "bold")).grid(
-            row=0, column=0, sticky="w")
+        # Date / Time rows
+        dt_frame = ctk.CTkFrame(cf, fg_color="transparent")
+        dt_frame.pack(fill="x", padx=12, pady=(0, 4))
+
+        # FROM row
+        from_row = ctk.CTkFrame(dt_frame, fg_color="transparent")
+        from_row.pack(fill="x", pady=(0, 4))
+
+        ctk.CTkLabel(from_row, text="From:",
+                     font=ctk.CTkFont("Segoe UI", 11, "bold"),
+                     width=50).pack(side="left")
+
         if HAS_TKCALENDAR:
-            self.from_date = DateEntry(dt_frame, width=11,
+            # DateEntry is a tkinter widget – embed in a tk.Frame
+            date_holder_from = tk.Frame(from_row, bg="#2b2b2b")
+            date_holder_from.pack(side="left", padx=(4, 8))
+            self.from_date = DateEntry(date_holder_from, width=11,
                                        date_pattern="dd/MM/yyyy",
                                        font=("Segoe UI", 10))
-            self.from_date.grid(row=0, column=1, padx=4)
+            self.from_date.pack()
         else:
             self._from_date_var = tk.StringVar(
                 value=datetime.now().strftime("%d/%m/%Y"))
-            ttk.Entry(dt_frame, textvariable=self._from_date_var,
-                      width=11).grid(row=0, column=1, padx=4)
+            ctk.CTkEntry(from_row, textvariable=self._from_date_var,
+                         width=100,
+                         font=ctk.CTkFont("Segoe UI", 11)).pack(
+                side="left", padx=(4, 8))
 
-        self.from_hour = ttk.Spinbox(dt_frame, from_=0, to=23, width=3,
-                                     format="%02.0f", font=("Segoe UI", 10))
-        self.from_hour.set("00")
-        self.from_hour.grid(row=0, column=2, padx=(4, 0))
-        ttk.Label(dt_frame, text=":").grid(row=0, column=3)
-        self.from_min = ttk.Spinbox(dt_frame, from_=0, to=59, width=3,
-                                    format="%02.0f", font=("Segoe UI", 10))
-        self.from_min.set("00")
-        self.from_min.grid(row=0, column=4, padx=(0, 8))
+        self._from_hour_var = tk.StringVar(value="00")
+        ctk.CTkEntry(from_row, textvariable=self._from_hour_var,
+                     width=42, font=ctk.CTkFont("Segoe UI", 11),
+                     justify="center").pack(side="left")
+        ctk.CTkLabel(from_row, text=":", width=10).pack(side="left")
+        self._from_min_var = tk.StringVar(value="00")
+        ctk.CTkEntry(from_row, textvariable=self._from_min_var,
+                     width=42, font=ctk.CTkFont("Segoe UI", 11),
+                     justify="center").pack(side="left")
 
-        # TO (row 1)
-        ttk.Label(dt_frame, text="To:", font=("Segoe UI", 10, "bold")).grid(
-            row=1, column=0, sticky="w", pady=(4, 0))
+        # TO row
+        to_row = ctk.CTkFrame(dt_frame, fg_color="transparent")
+        to_row.pack(fill="x", pady=(0, 4))
+
+        ctk.CTkLabel(to_row, text="To:",
+                     font=ctk.CTkFont("Segoe UI", 11, "bold"),
+                     width=50).pack(side="left")
+
         if HAS_TKCALENDAR:
-            self.to_date = DateEntry(dt_frame, width=11,
+            date_holder_to = tk.Frame(to_row, bg="#2b2b2b")
+            date_holder_to.pack(side="left", padx=(4, 8))
+            self.to_date = DateEntry(date_holder_to, width=11,
                                      date_pattern="dd/MM/yyyy",
                                      font=("Segoe UI", 10))
-            self.to_date.grid(row=1, column=1, padx=4, pady=(4, 0))
+            self.to_date.pack()
         else:
             self._to_date_var = tk.StringVar(
                 value=datetime.now().strftime("%d/%m/%Y"))
-            ttk.Entry(dt_frame, textvariable=self._to_date_var,
-                      width=11).grid(row=1, column=1, padx=4, pady=(4, 0))
+            ctk.CTkEntry(to_row, textvariable=self._to_date_var,
+                         width=100,
+                         font=ctk.CTkFont("Segoe UI", 11)).pack(
+                side="left", padx=(4, 8))
 
-        self.to_hour = ttk.Spinbox(dt_frame, from_=0, to=23, width=3,
-                                   format="%02.0f", font=("Segoe UI", 10))
-        self.to_hour.set("23")
-        self.to_hour.grid(row=1, column=2, padx=(4, 0), pady=(4, 0))
-        ttk.Label(dt_frame, text=":").grid(row=1, column=3, pady=(4, 0))
-        self.to_min = ttk.Spinbox(dt_frame, from_=0, to=59, width=3,
-                                  format="%02.0f", font=("Segoe UI", 10))
-        self.to_min.set("59")
-        self.to_min.grid(row=1, column=4, padx=(0, 8), pady=(4, 0))
+        self._to_hour_var = tk.StringVar(value="23")
+        ctk.CTkEntry(to_row, textvariable=self._to_hour_var,
+                     width=42, font=ctk.CTkFont("Segoe UI", 11),
+                     justify="center").pack(side="left")
+        ctk.CTkLabel(to_row, text=":", width=10).pack(side="left")
+        self._to_min_var = tk.StringVar(value="59")
+        ctk.CTkEntry(to_row, textvariable=self._to_min_var,
+                     width=42, font=ctk.CTkFont("Segoe UI", 11),
+                     justify="center").pack(side="left")
 
-        # +1 h shortcut (next to To row)
-        ttk.Button(dt_frame, text="+1 h",
-                   command=self._set_to_plus_one_hour).grid(
-            row=1, column=5, padx=4, pady=(4, 0))
+        ctk.CTkButton(to_row, text="+1 h", width=60,
+                      fg_color="gray40", hover_color="gray50",
+                      command=self._set_to_plus_one_hour).pack(
+            side="left", padx=(12, 0))
 
         # System IDs
-        id_frame = ttk.Frame(cf)
-        id_frame.pack(fill="x", padx=8, pady=4)
-        ttk.Label(id_frame, text="System ID(s)*:").pack(side="left",
-                                                         padx=(0, 4))
+        id_row = ctk.CTkFrame(cf, fg_color="transparent")
+        id_row.pack(fill="x", padx=12, pady=(0, 4))
+        ctk.CTkLabel(id_row, text="System ID(s)*:",
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", padx=(0, 6))
         self.system_ids_var = tk.StringVar()
-        ttk.Entry(id_frame, textvariable=self.system_ids_var).pack(
-            side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Label(id_frame, text="comma\u2011separated",
-                  foreground="grey").pack(side="left")
+        ctk.CTkEntry(id_row, textvariable=self.system_ids_var,
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkLabel(id_row, text="comma\u2011separated",
+                     text_color=MUTED_FG,
+                     font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
 
         # Serial number
-        sn_frame = ttk.Frame(cf)
-        sn_frame.pack(fill="x", padx=8, pady=(2, 6))
-        ttk.Label(sn_frame, text="Serial Number:").pack(side="left",
-                                                         padx=(0, 4))
+        sn_row = ctk.CTkFrame(cf, fg_color="transparent")
+        sn_row.pack(fill="x", padx=12, pady=(0, 4))
+        ctk.CTkLabel(sn_row, text="Serial Number:",
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", padx=(0, 6))
         self.serial_var = tk.StringVar()
-        ttk.Entry(sn_frame, textvariable=self.serial_var).pack(
-            side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Label(sn_frame, text="optional", foreground="grey").pack(
-            side="left")
+        ctk.CTkEntry(sn_row, textvariable=self.serial_var,
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkLabel(sn_row, text="optional", text_color=MUTED_FG,
+                     font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
 
         # Search button
-        btn_row = ttk.Frame(cf)
-        btn_row.pack(fill="x", padx=8, pady=(0, 6))
-        self._search_btn = ttk.Button(btn_row, text="\U0001F50D  Search",
-                                      style="Blue.TButton",
-                                      command=self._do_search)
+        btn_row = ctk.CTkFrame(cf, fg_color="transparent")
+        btn_row.pack(fill="x", padx=12, pady=(2, 10))
+        self._search_btn = ctk.CTkButton(
+            btn_row, text="\U0001F50D  Search", width=140,
+            fg_color=BLUE, hover_color=BLUE_HOVER,
+            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            command=self._do_search)
         self._search_btn.pack(side="left")
         self._result_count_var = tk.StringVar()
-        ttk.Label(btn_row, textvariable=self._result_count_var,
-                  foreground=ACCENT, font=("Segoe UI", 10, "bold")).pack(
-            side="left", padx=12)
+        ctk.CTkLabel(btn_row, textvariable=self._result_count_var,
+                     font=ctk.CTkFont("Segoe UI", 11, "bold")).pack(
+            side="left", padx=14)
 
-        # -- actions (packed before results so they stay visible in small
-        #    windows – the results tree will shrink instead) -----------------
-        af = ttk.Frame(tab)
-        af.pack(side="bottom", fill="x", pady=(4, 0))
+        # -- actions bar (packed before results so always visible) -------------
+        af = ctk.CTkFrame(tab, fg_color="transparent")
+        af.pack(side="bottom", fill="x", padx=4, pady=(4, 2))
 
-        ttk.Button(af, text="Select All",
-                   command=self._select_all).pack(side="left", padx=(0, 4))
-        ttk.Button(af, text="Deselect All",
-                   command=self._deselect_all).pack(side="left", padx=(0, 12))
+        ctk.CTkButton(af, text="Select All", width=90,
+                      fg_color="gray40", hover_color="gray50",
+                      command=self._select_all).pack(
+            side="left", padx=(0, 4))
+        ctk.CTkButton(af, text="Deselect All", width=100,
+                      fg_color="gray40", hover_color="gray50",
+                      command=self._deselect_all).pack(
+            side="left", padx=(0, 12))
 
         self.dest_var = tk.StringVar()
-        ttk.Button(af, text="\U0001F4C1 Destination",
-                   command=self._browse_dest).pack(side="left", padx=(0, 4))
-        ttk.Entry(af, textvariable=self.dest_var, width=24).pack(
-            side="left", fill="x", expand=True, padx=(0, 6))
-        self._dl_sel_btn = ttk.Button(af, text="\u2B07  Download Selected",
-                                       style="Green.TButton",
-                                       command=self._download_selected)
+        ctk.CTkButton(af, text="\U0001F4C1 Destination", width=120,
+                      command=self._browse_dest).pack(
+            side="left", padx=(0, 4))
+        ctk.CTkEntry(af, textvariable=self.dest_var, width=200,
+                     font=ctk.CTkFont("Segoe UI", 11)).pack(
+            side="left", fill="x", expand=True, padx=(0, 8))
+        self._dl_sel_btn = ctk.CTkButton(
+            af, text="\u2B07  Download Selected", width=170,
+            fg_color=GREEN, hover_color=GREEN_HOVER,
+            font=ctk.CTkFont("Segoe UI", 11, "bold"),
+            command=self._download_selected)
         self._dl_sel_btn.pack(side="right")
 
-        # -- results ---------------------------------------------------------
-        rf = ttk.LabelFrame(tab, text="Results")
-        rf.pack(fill="both", expand=True, pady=(0, 4))
+        # -- results (Treeview – classic ttk widget) --------------------------
+        rf = ctk.CTkFrame(tab, corner_radius=8)
+        rf.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+
+        ctk.CTkLabel(rf, text="Results",
+                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 2))
+
+        tree_container = tk.Frame(rf, bg="#2b2b2b")
+        tree_container.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         cols = ("filename", "folder", "datetime", "system_id", "serial",
                 "full_path")
-        self.tree = ttk.Treeview(rf, columns=cols, show="headings",
-                                 selectmode="extended")
+        self.tree = ttk.Treeview(tree_container, columns=cols,
+                                  show="headings", selectmode="extended",
+                                  style="Dark.Treeview")
 
         for col, label in (("filename", "Filename"),
                            ("folder", "Folder"),
@@ -566,28 +669,29 @@ class App:
                 col, text=label,
                 command=lambda c=col: self._sort_tree(c))
 
-        # Track current sort state
         self._sort_col = None
         self._sort_asc = True
 
-        self.tree.column("filename", width=220, minwidth=140)
-        self.tree.column("folder", width=90, minwidth=60)
-        self.tree.column("datetime", width=120, minwidth=100)
-        self.tree.column("system_id", width=80, minwidth=60)
-        self.tree.column("serial", width=80, minwidth=60)
-        self.tree.column("full_path", width=260, minwidth=160)
+        self.tree.column("filename", width=200, minwidth=120)
+        self.tree.column("folder", width=80, minwidth=50)
+        self.tree.column("datetime", width=120, minwidth=90)
+        self.tree.column("system_id", width=80, minwidth=50)
+        self.tree.column("serial", width=70, minwidth=50)
+        self.tree.column("full_path", width=240, minwidth=140)
 
-        vsb = ttk.Scrollbar(rf, orient="vertical", command=self.tree.yview)
-        hsb = ttk.Scrollbar(rf, orient="horizontal", command=self.tree.xview)
+        vsb = ttk.Scrollbar(tree_container, orient="vertical",
+                            command=self.tree.yview,
+                            style="Dark.Vertical.TScrollbar")
+        hsb = ttk.Scrollbar(tree_container, orient="horizontal",
+                            command=self.tree.xview,
+                            style="Dark.Horizontal.TScrollbar")
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-        self.tree.grid(row=0, column=0, sticky="nsew", padx=(8, 0),
-                       pady=(6, 0))
-        vsb.grid(row=0, column=1, sticky="ns", pady=(6, 0))
-        hsb.grid(row=1, column=0, sticky="ew", padx=(8, 0))
-        rf.columnconfigure(0, weight=1)
-        rf.rowconfigure(0, weight=1)
-
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_container.columnconfigure(0, weight=1)
+        tree_container.rowconfigure(0, weight=1)
 
     # -----------------------------------------------------------------------
     # Upload / Download helpers
@@ -625,9 +729,9 @@ class App:
         if remote_dest.endswith("/"):
             remote_dest += os.path.basename(local_file)
 
-        self._upload_btn.state(["disabled"])
+        self._upload_btn.configure(state="disabled")
         self.status_var.set("Connecting for upload \u2026")
-        self.progress_var.set(0)
+        self._set_progress(0)
         self.root.update_idletasks()
 
         def _worker():
@@ -653,7 +757,7 @@ class App:
                             pct = (transferred / total * 100
                                    if total > 0 else 0)
                             self.root.after(0, lambda p=pct: (
-                                self.progress_var.set(p),
+                                self._set_progress(p),
                                 self.status_var.set(
                                     f"Uploading\u2026 {p:.0f}%")))
 
@@ -666,22 +770,22 @@ class App:
                         "Success",
                         f"Uploaded to:\n{remote_dest}"),
                     self.status_var.set("Upload complete"),
-                    self.progress_var.set(100)))
+                    self._set_progress(100)))
 
             except ConnectionError as exc:
                 self._clear_passwords()
                 self.root.after(0, lambda: (
                     messagebox.showerror("Connection Error", str(exc)),
                     self.status_var.set("Upload failed"),
-                    self.progress_var.set(0)))
+                    self._set_progress(0)))
             except Exception as exc:
                 self.root.after(0, lambda: (
                     messagebox.showerror("Upload Error", str(exc)),
                     self.status_var.set("Upload failed"),
-                    self.progress_var.set(0)))
+                    self._set_progress(0)))
             finally:
                 self.root.after(
-                    0, lambda: self._upload_btn.state(["!disabled"]))
+                    0, lambda: self._upload_btn.configure(state="normal"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -715,9 +819,9 @@ class App:
             return
         local_file = os.path.join(dest_folder, fname)
 
-        self._download_btn.state(["disabled"])
+        self._download_btn.configure(state="disabled")
         self.status_var.set("Connecting for download \u2026")
-        self.progress_var.set(0)
+        self._set_progress(0)
         self.root.update_idletasks()
 
         def _worker():
@@ -725,7 +829,6 @@ class App:
                 with self._open_connection() as ssh:
                     sftp = ssh.open_sftp()
                     try:
-                        # Verify remote file exists
                         try:
                             sftp.stat(remote_src)
                         except FileNotFoundError:
@@ -736,7 +839,7 @@ class App:
                             pct = (transferred / total * 100
                                    if total > 0 else 0)
                             self.root.after(0, lambda p=pct: (
-                                self.progress_var.set(p),
+                                self._set_progress(p),
                                 self.status_var.set(
                                     f"Downloading\u2026 {p:.0f}%")))
 
@@ -749,22 +852,22 @@ class App:
                         "Success",
                         f"Downloaded to:\n{local_file}"),
                     self.status_var.set("Download complete"),
-                    self.progress_var.set(100)))
+                    self._set_progress(100)))
 
             except ConnectionError as exc:
                 self._clear_passwords()
                 self.root.after(0, lambda: (
                     messagebox.showerror("Connection Error", str(exc)),
                     self.status_var.set("Download failed"),
-                    self.progress_var.set(0)))
+                    self._set_progress(0)))
             except Exception as exc:
                 self.root.after(0, lambda: (
                     messagebox.showerror("Download Error", str(exc)),
                     self.status_var.set("Download failed"),
-                    self.progress_var.set(0)))
+                    self._set_progress(0)))
             finally:
                 self.root.after(
-                    0, lambda: self._download_btn.state(["!disabled"]))
+                    0, lambda: self._download_btn.configure(state="normal"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -778,7 +881,8 @@ class App:
             d = datetime.strptime(self._from_date_var.get(),
                                   "%d/%m/%Y").date()
         return datetime(d.year, d.month, d.day,
-                        int(self.from_hour.get()), int(self.from_min.get()))
+                        int(self._from_hour_var.get()),
+                        int(self._from_min_var.get()))
 
     def _get_to_dt(self):
         if HAS_TKCALENDAR:
@@ -787,10 +891,10 @@ class App:
             d = datetime.strptime(self._to_date_var.get(),
                                   "%d/%m/%Y").date()
         return datetime(d.year, d.month, d.day,
-                        int(self.to_hour.get()), int(self.to_min.get()))
+                        int(self._to_hour_var.get()),
+                        int(self._to_min_var.get()))
 
     def _set_to_plus_one_hour(self):
-        """Set *To* = *From* + 1 hour (quick shortcut)."""
         try:
             target = self._get_from_dt() + timedelta(hours=1)
         except (ValueError, AttributeError):
@@ -799,16 +903,14 @@ class App:
             self.to_date.set_date(target.date())
         else:
             self._to_date_var.set(target.strftime("%d/%m/%Y"))
-        self.to_hour.set(f"{target.hour:02d}")
-        self.to_min.set(f"{target.minute:02d}")
+        self._to_hour_var.set(f"{target.hour:02d}")
+        self._to_min_var.set(f"{target.minute:02d}")
 
     # -----------------------------------------------------------------------
     # Filename parser
     # -----------------------------------------------------------------------
     @staticmethod
     def _parse_zip(filepath):
-        """Return a dict with parsed info or *None* if the name doesn't
-        match the expected pattern."""
         basename = os.path.basename(filepath.strip())
         m = ZIP_RE.match(basename)
         if not m:
@@ -818,7 +920,6 @@ class App:
             dt = datetime.strptime(dt_str, "%Y%m%d%H%M")
         except ValueError:
             return None
-        # folder is the first component after "batches/"
         parts = filepath.strip().split("/")
         folder = ""
         for i, p in enumerate(parts):
@@ -863,9 +964,9 @@ class App:
         if not self._ensure_passwords():
             return
 
-        self._search_btn.state(["disabled"])
+        self._search_btn.configure(state="disabled")
         self.status_var.set("Connecting via SSH \u2026")
-        self.progress_var.set(0)
+        self._set_progress(0)
         self.root.update_idletasks()
 
         def _worker():
@@ -917,7 +1018,7 @@ class App:
                     0, lambda: self.status_var.set("Search failed"))
             finally:
                 self.root.after(
-                    0, lambda: self._search_btn.state(["!disabled"]))
+                    0, lambda: self._search_btn.configure(state="normal"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -952,7 +1053,6 @@ class App:
     # Column sorting
     # -----------------------------------------------------------------------
     def _sort_tree(self, col):
-        """Sort the results Treeview by *col*, toggling direction."""
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
         else:
@@ -962,7 +1062,6 @@ class App:
         rows = [(self.tree.set(iid, col), iid) for iid in
                 self.tree.get_children()]
 
-        # For numeric columns use numeric sort
         if col in ("system_id", "serial"):
             def key_fn(item):
                 try:
@@ -984,7 +1083,6 @@ class App:
         for idx, (_val, iid) in enumerate(rows):
             self.tree.move(iid, "", idx)
 
-        # Update heading arrows
         arrow = " \u25B2" if self._sort_asc else " \u25BC"
         col_labels = {
             "filename": "Filename",
@@ -1017,7 +1115,6 @@ class App:
         for iid in selected:
             vals = self.tree.item(iid, "values")
             full_path = vals[5]
-            # Safety: only allow paths that look like expected server paths
             if not full_path.startswith(BATCHES_PATH):
                 continue
             paths.append(full_path)
@@ -1030,10 +1127,10 @@ class App:
         if not self._ensure_passwords():
             return
 
-        self._dl_sel_btn.state(["disabled"])
+        self._dl_sel_btn.configure(state="disabled")
         self.status_var.set(
             f"Preparing download of {len(paths)} file(s) \u2026")
-        self.progress_var.set(0)
+        self._set_progress(0)
         self.root.update_idletasks()
 
         def _worker():
@@ -1046,7 +1143,6 @@ class App:
                             fname = os.path.basename(remote_path)
                             local_file = os.path.join(dest, fname)
 
-                            # Avoid overwriting: add suffix if file exists
                             base, ext = os.path.splitext(fname)
                             counter = 1
                             while os.path.exists(local_file):
@@ -1058,12 +1154,12 @@ class App:
                                             f=fname: (
                                 self.status_var.set(
                                     f"Downloading {i}/{t}: {f}"),
-                                self.progress_var.set(
+                                self._set_progress(
                                     (i - 1) / t * 100)))
 
                             sftp.get(remote_path, local_file)
 
-                        self.root.after(0, lambda: self.progress_var.set(100))
+                        self.root.after(0, lambda: self._set_progress(100))
                     finally:
                         sftp.close()
 
@@ -1072,22 +1168,22 @@ class App:
                         "Success",
                         f"Downloaded {len(paths)} file(s) to:\n{dest}"),
                     self.status_var.set("Download complete"),
-                    self.progress_var.set(100)))
+                    self._set_progress(100)))
 
             except ConnectionError as exc:
                 self._clear_passwords()
                 self.root.after(0, lambda: (
                     messagebox.showerror("Connection Error", str(exc)),
                     self.status_var.set("Download failed"),
-                    self.progress_var.set(0)))
+                    self._set_progress(0)))
             except Exception as exc:
                 self.root.after(0, lambda: (
                     messagebox.showerror("Error", str(exc)),
                     self.status_var.set("Download failed"),
-                    self.progress_var.set(0)))
+                    self._set_progress(0)))
             finally:
                 self.root.after(
-                    0, lambda: self._dl_sel_btn.state(["!disabled"]))
+                    0, lambda: self._dl_sel_btn.configure(state="normal"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -1097,7 +1193,7 @@ class App:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     if paramiko is None:
-        _r = tk.Tk()
+        _r = ctk.CTk()
         _r.withdraw()
         messagebox.showerror(
             "Missing Dependency",
@@ -1106,6 +1202,6 @@ if __name__ == "__main__":
         _r.destroy()
         raise SystemExit(1)
 
-    root = tk.Tk()
+    root = ctk.CTk()
     App(root)
     root.mainloop()
