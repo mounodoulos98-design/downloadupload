@@ -636,7 +636,10 @@ class App:
                     sftp = ssh.open_sftp()
                     try:
                         # Verify remote directory exists
-                        remote_dir = remote_dest.rsplit("/", 1)[0]
+                        if "/" in remote_dest:
+                            remote_dir = remote_dest.rsplit("/", 1)[0]
+                        else:
+                            remote_dir = ""
                         if remote_dir:
                             try:
                                 sftp.stat(remote_dir)
@@ -704,7 +707,12 @@ class App:
         if not self._ensure_passwords():
             return
 
-        fname = remote_src.rsplit("/", 1)[-1] if "/" in remote_src else remote_src
+        fname = os.path.basename(remote_src)
+        if not fname:
+            messagebox.showerror(
+                "Error",
+                "Cannot determine filename from the remote path.")
+            return
         local_file = os.path.join(dest_folder, fname)
 
         self._download_btn.state(["disabled"])
