@@ -105,6 +105,38 @@ def _setup_treeview_style():
                     arrowsize=14)
 
 
+def _enable_paste(root):
+    """Bind Ctrl+V / Cmd+V to paste from clipboard in all CTkEntry widgets.
+
+    CustomTkinter entry widgets sometimes miss the standard paste shortcut
+    on Windows.  This adds a root-level binding that delegates to the
+    focused widget so Ctrl+V works everywhere.
+    """
+    def _paste(event):
+        widget = event.widget
+        # Walk up to find the actual entry if focus is on an inner component
+        try:
+            focused = root.focus_get()
+        except KeyError:
+            return
+        if focused is None:
+            return
+        # CTkEntry wraps a real tk Entry – accept both
+        if isinstance(focused, (tk.Entry, ttk.Entry)):
+            try:
+                clip = root.clipboard_get()
+            except tk.TclError:
+                return
+            if focused.select_present():
+                focused.delete("sel.first", "sel.last")
+            focused.insert("insert", clip)
+            return "break"
+
+    modifier = "Command" if platform.system() == "Darwin" else "Control"
+    root.bind_all(f"<{modifier}-v>", _paste)
+    root.bind_all(f"<{modifier}-V>", _paste)
+
+
 # ---------------------------------------------------------------------------
 # Password dialog
 # ---------------------------------------------------------------------------
@@ -115,6 +147,7 @@ class PasswordDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.transient(parent)
         self.title("\U0001F512 SSH Authentication")
+        # Note: The lock emoji in the title bar is rendered by the OS.
         self.resizable(False, False)
         self.result = None
 
@@ -133,7 +166,7 @@ class PasswordDialog(ctk.CTkToplevel):
                      font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
             anchor="w")
         ctk.CTkLabel(main,
-                     text=f"({JUMP_USER}@{JUMP_HOST}:{JUMP_PORT})",
+                     text=f"{JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}",
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
         self.relay_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
@@ -145,7 +178,7 @@ class PasswordDialog(ctk.CTkToplevel):
                      font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
             anchor="w")
         ctk.CTkLabel(main,
-                     text=f"({REMOTE_USER}@{REMOTE_HOST}:<port>)",
+                     text=f"{REMOTE_USER}@{REMOTE_HOST}:<port>",
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
         self.local_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
@@ -213,6 +246,7 @@ class App:
                 pass  # Silently ignore if not supported on this OS version
 
         _setup_treeview_style()
+        _enable_paste(self.root)
 
         # -- passwords (stored in memory only) --------------------------------
         self._relay_pw = None
@@ -235,7 +269,7 @@ class App:
                      width=80, font=ctk.CTkFont("Segoe UI", 12)).pack(
             side="left", padx=(0, 12))
 
-        ctk.CTkButton(top_row, text="\U0001F512 Login", width=110,
+        ctk.CTkButton(top_row, text="\u26BF Login", width=110,
                       command=self._prompt_passwords).pack(
             side="left", padx=(0, 12))
 
@@ -446,7 +480,7 @@ class App:
         ctk.CTkEntry(upload_row, textvariable=self.file_path,
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
             side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(upload_row, text="\U0001F4C2 Browse\u2026",
+        ctk.CTkButton(upload_row, text="\u2302 Browse\u2026",
                       width=110, command=self._browse_file).pack(side="right")
 
         self._upload_btn = ctk.CTkButton(
@@ -474,7 +508,7 @@ class App:
         ctk.CTkEntry(dl_row, textvariable=self.local_path,
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
             side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(dl_row, text="\U0001F4C1 Browse\u2026",
+        ctk.CTkButton(dl_row, text="\u2302 Browse\u2026",
                       width=110, command=self._browse_folder).pack(side="right")
 
         self._download_btn = ctk.CTkButton(
@@ -605,7 +639,7 @@ class App:
         btn_row = ctk.CTkFrame(cf, fg_color="transparent")
         btn_row.pack(fill="x", padx=12, pady=(2, 10))
         self._search_btn = ctk.CTkButton(
-            btn_row, text="\U0001F50D  Search", width=140,
+            btn_row, text="\u2315  Search", width=140,
             fg_color=BLUE, hover_color=BLUE_HOVER,
             font=ctk.CTkFont("Segoe UI", 12, "bold"),
             command=self._do_search)
@@ -629,7 +663,7 @@ class App:
             side="left", padx=(0, 12))
 
         self.dest_var = tk.StringVar()
-        ctk.CTkButton(af, text="\U0001F4C1 Destination", width=120,
+        ctk.CTkButton(af, text="\u2302 Destination", width=120,
                       command=self._browse_dest).pack(
             side="left", padx=(0, 4))
         ctk.CTkEntry(af, textvariable=self.dest_var, width=200,
