@@ -172,8 +172,8 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("SCP Tool \u2014 Upload / Download / Batch Search")
-        self.root.geometry("860x720")
-        self.root.minsize(780, 660)
+        self.root.geometry("900x740")
+        self.root.minsize(700, 560)
         self.root.configure(bg=BG)
 
         _configure_styles()
@@ -187,16 +187,17 @@ class App:
 
         # -- connection bar --------------------------------------------------
         conn = ttk.LabelFrame(root, text="Connection Settings")
-        conn.pack(fill="x", padx=12, pady=(10, 4))
+        conn.pack(fill="x", padx=10, pady=(8, 4))
+        conn.columnconfigure(3, weight=1)
 
         ttk.Label(conn, text="Remote Port:").grid(row=0, column=0, padx=(8, 4),
-                                                   pady=6, sticky="w")
-        ttk.Entry(conn, textvariable=self.remote_port, width=12).grid(
-            row=0, column=1, padx=(0, 12), pady=6)
+                                                   pady=4, sticky="w")
+        ttk.Entry(conn, textvariable=self.remote_port, width=10).grid(
+            row=0, column=1, padx=(0, 8), pady=4)
 
         ttk.Button(conn, text="\U0001F512 Login",
                    command=self._prompt_passwords).grid(
-            row=0, column=2, padx=(0, 8), pady=6)
+            row=0, column=2, padx=(0, 8), pady=4)
 
         self._auth_var = tk.StringVar(value="\u274C Not authenticated")
         self._auth_label = ttk.Label(conn, textvariable=self._auth_var,
@@ -205,12 +206,13 @@ class App:
 
         info_text = (f"Jump: {JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}  \u2192  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
-        ttk.Label(conn, text=info_text, foreground="grey").grid(
-            row=1, column=0, columnspan=4, padx=8, pady=(0, 4), sticky="w")
+        ttk.Label(conn, text=info_text, foreground="grey",
+                  font=("Segoe UI", 8)).grid(
+            row=1, column=0, columnspan=4, padx=8, pady=(0, 3), sticky="w")
 
         # -- progress bar + status bar (pack early so they stay at bottom) ---
         bottom = ttk.Frame(root)
-        bottom.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
+        bottom.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
 
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(bottom,
@@ -225,7 +227,7 @@ class App:
 
         # -- notebook --------------------------------------------------------
         self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill="both", expand=True, padx=12, pady=6)
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=4)
 
         self._build_upload_download_tab()
         self._build_batch_search_tab()
@@ -257,6 +259,24 @@ class App:
     def _update_auth_indicator_disconnected(self):
         self._auth_var.set("\u274C Not authenticated")
         self._auth_label.configure(foreground=RED)
+
+    # -----------------------------------------------------------------------
+    # Path helpers
+    # -----------------------------------------------------------------------
+    @staticmethod
+    def _normalize_path(path):
+        """Strip surrounding quotes and whitespace from user-entered paths.
+
+        Users often copy-paste paths from file explorers or terminals that
+        include surrounding quotes – this breaks ``os.path.isfile`` and
+        similar checks.
+        """
+        path = path.strip()
+        if len(path) >= 2:
+            if (path[0] == '"' and path[-1] == '"') or \
+               (path[0] == "'" and path[-1] == "'"):
+                path = path[1:-1].strip()
+        return path
 
     # -----------------------------------------------------------------------
     # SSH connection (paramiko)
@@ -349,67 +369,78 @@ class App:
     # Tab 1 – Upload / Download
     # -----------------------------------------------------------------------
     def _build_upload_download_tab(self):
-        tab = ttk.Frame(self.notebook, padding=14)
+        tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(tab, text="  Upload / Download  ")
 
         # Remote path
         pf = ttk.LabelFrame(tab, text="Remote Linux Path")
-        pf.pack(fill="x", pady=(0, 10))
+        pf.pack(fill="x", pady=(0, 6))
         self.remote_path = tk.StringVar(
             value="/home/hat/Downloads/pythonscripts/")
-        ttk.Entry(pf, textvariable=self.remote_path).pack(
-            fill="x", padx=8, pady=6)
+        ttk.Entry(pf, textvariable=self.remote_path,
+                  font=("Segoe UI", 10)).pack(fill="x", padx=8, pady=(4, 2))
+        ttk.Label(pf,
+                  text=("\u2139  Upload: destination directory (ending with /)  "
+                        "|  Download: full path to remote file"),
+                  foreground="grey", font=("Segoe UI", 8)).pack(
+            anchor="w", padx=8, pady=(0, 4))
 
         # Upload
-        uf = ttk.LabelFrame(tab, text="Upload")
-        uf.pack(fill="x", pady=(0, 10))
+        uf = ttk.LabelFrame(tab, text="\u2B06  Upload")
+        uf.pack(fill="x", pady=(0, 6))
 
         self.file_path = tk.StringVar()
         row = ttk.Frame(uf)
-        row.pack(fill="x", padx=8, pady=6)
-        ttk.Entry(row, textvariable=self.file_path).pack(
+        row.pack(fill="x", padx=8, pady=(4, 2))
+        ttk.Label(row, text="Local File:", width=10).pack(
+            side="left", padx=(0, 4))
+        ttk.Entry(row, textvariable=self.file_path,
+                  font=("Segoe UI", 10)).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(row, text="Browse File",
+        ttk.Button(row, text="\U0001F4C2 Browse\u2026",
                    command=self._browse_file).pack(side="right")
 
         self._upload_btn = ttk.Button(uf, text="\u2B06  UPLOAD",
                                       style="Green.TButton",
                                       command=self._upload)
-        self._upload_btn.pack(pady=(0, 8))
+        self._upload_btn.pack(pady=(2, 6))
 
         # Download
-        df = ttk.LabelFrame(tab, text="Download")
+        df = ttk.LabelFrame(tab, text="\u2B07  Download")
         df.pack(fill="x")
 
         self.local_path = tk.StringVar()
         row2 = ttk.Frame(df)
-        row2.pack(fill="x", padx=8, pady=6)
-        ttk.Entry(row2, textvariable=self.local_path).pack(
+        row2.pack(fill="x", padx=8, pady=(4, 2))
+        ttk.Label(row2, text="Save To:", width=10).pack(
+            side="left", padx=(0, 4))
+        ttk.Entry(row2, textvariable=self.local_path,
+                  font=("Segoe UI", 10)).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(row2, text="Browse Folder",
+        ttk.Button(row2, text="\U0001F4C1 Browse\u2026",
                    command=self._browse_folder).pack(side="right")
 
         self._download_btn = ttk.Button(df, text="\u2B07  DOWNLOAD",
                                         style="Blue.TButton",
                                         command=self._download)
-        self._download_btn.pack(pady=(0, 8))
+        self._download_btn.pack(pady=(2, 6))
 
     # -----------------------------------------------------------------------
     # Tab 2 – Batch Search
     # -----------------------------------------------------------------------
     def _build_batch_search_tab(self):
-        tab = ttk.Frame(self.notebook, padding=14)
+        tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(tab, text="  Batch Search  ")
 
         # -- search criteria -------------------------------------------------
         cf = ttk.LabelFrame(tab, text="Search Criteria")
-        cf.pack(fill="x", pady=(0, 8))
+        cf.pack(fill="x", pady=(0, 6))
 
-        # Date / Time row
+        # Date / Time rows (split into two rows for narrow windows)
         dt_frame = ttk.Frame(cf)
-        dt_frame.pack(fill="x", padx=8, pady=(8, 4))
+        dt_frame.pack(fill="x", padx=8, pady=(6, 4))
 
-        # FROM
+        # FROM (row 0)
         ttk.Label(dt_frame, text="From:", font=("Segoe UI", 10, "bold")).grid(
             row=0, column=0, sticky="w")
         if HAS_TKCALENDAR:
@@ -431,36 +462,36 @@ class App:
         self.from_min = ttk.Spinbox(dt_frame, from_=0, to=59, width=3,
                                     format="%02.0f", font=("Segoe UI", 10))
         self.from_min.set("00")
-        self.from_min.grid(row=0, column=4, padx=(0, 16))
+        self.from_min.grid(row=0, column=4, padx=(0, 8))
 
-        # TO
+        # TO (row 1)
         ttk.Label(dt_frame, text="To:", font=("Segoe UI", 10, "bold")).grid(
-            row=0, column=5, sticky="w")
+            row=1, column=0, sticky="w", pady=(4, 0))
         if HAS_TKCALENDAR:
             self.to_date = DateEntry(dt_frame, width=11,
                                      date_pattern="dd/MM/yyyy",
                                      font=("Segoe UI", 10))
-            self.to_date.grid(row=0, column=6, padx=4)
+            self.to_date.grid(row=1, column=1, padx=4, pady=(4, 0))
         else:
             self._to_date_var = tk.StringVar(
                 value=datetime.now().strftime("%d/%m/%Y"))
             ttk.Entry(dt_frame, textvariable=self._to_date_var,
-                      width=11).grid(row=0, column=6, padx=4)
+                      width=11).grid(row=1, column=1, padx=4, pady=(4, 0))
 
         self.to_hour = ttk.Spinbox(dt_frame, from_=0, to=23, width=3,
                                    format="%02.0f", font=("Segoe UI", 10))
         self.to_hour.set("23")
-        self.to_hour.grid(row=0, column=7, padx=(4, 0))
-        ttk.Label(dt_frame, text=":").grid(row=0, column=8)
+        self.to_hour.grid(row=1, column=2, padx=(4, 0), pady=(4, 0))
+        ttk.Label(dt_frame, text=":").grid(row=1, column=3, pady=(4, 0))
         self.to_min = ttk.Spinbox(dt_frame, from_=0, to=59, width=3,
                                   format="%02.0f", font=("Segoe UI", 10))
         self.to_min.set("59")
-        self.to_min.grid(row=0, column=9, padx=(0, 8))
+        self.to_min.grid(row=1, column=4, padx=(0, 8), pady=(4, 0))
 
-        # +1 h shortcut
+        # +1 h shortcut (next to To row)
         ttk.Button(dt_frame, text="+1 h",
                    command=self._set_to_plus_one_hour).grid(
-            row=0, column=10, padx=4)
+            row=1, column=5, padx=4, pady=(4, 0))
 
         # System IDs
         id_frame = ttk.Frame(cf)
@@ -475,7 +506,7 @@ class App:
 
         # Serial number
         sn_frame = ttk.Frame(cf)
-        sn_frame.pack(fill="x", padx=8, pady=(4, 8))
+        sn_frame.pack(fill="x", padx=8, pady=(2, 6))
         ttk.Label(sn_frame, text="Serial Number:").pack(side="left",
                                                          padx=(0, 4))
         self.serial_var = tk.StringVar()
@@ -486,7 +517,7 @@ class App:
 
         # Search button
         btn_row = ttk.Frame(cf)
-        btn_row.pack(fill="x", padx=8, pady=(0, 8))
+        btn_row.pack(fill="x", padx=8, pady=(0, 6))
         self._search_btn = ttk.Button(btn_row, text="\U0001F50D  Search",
                                       style="Blue.TButton",
                                       command=self._do_search)
@@ -496,9 +527,29 @@ class App:
                   foreground=ACCENT, font=("Segoe UI", 10, "bold")).pack(
             side="left", padx=12)
 
+        # -- actions (packed before results so they stay visible in small
+        #    windows – the results tree will shrink instead) -----------------
+        af = ttk.Frame(tab)
+        af.pack(side="bottom", fill="x", pady=(4, 0))
+
+        ttk.Button(af, text="Select All",
+                   command=self._select_all).pack(side="left", padx=(0, 4))
+        ttk.Button(af, text="Deselect All",
+                   command=self._deselect_all).pack(side="left", padx=(0, 12))
+
+        self.dest_var = tk.StringVar()
+        ttk.Button(af, text="\U0001F4C1 Destination",
+                   command=self._browse_dest).pack(side="left", padx=(0, 4))
+        ttk.Entry(af, textvariable=self.dest_var, width=24).pack(
+            side="left", fill="x", expand=True, padx=(0, 6))
+        self._dl_sel_btn = ttk.Button(af, text="\u2B07  Download Selected",
+                                       style="Green.TButton",
+                                       command=self._download_selected)
+        self._dl_sel_btn.pack(side="right")
+
         # -- results ---------------------------------------------------------
         rf = ttk.LabelFrame(tab, text="Results")
-        rf.pack(fill="both", expand=True, pady=(0, 8))
+        rf.pack(fill="both", expand=True, pady=(0, 4))
 
         cols = ("filename", "folder", "datetime", "system_id", "serial",
                 "full_path")
@@ -537,24 +588,6 @@ class App:
         rf.columnconfigure(0, weight=1)
         rf.rowconfigure(0, weight=1)
 
-        # -- actions ---------------------------------------------------------
-        af = ttk.Frame(tab)
-        af.pack(fill="x")
-
-        ttk.Button(af, text="Select All",
-                   command=self._select_all).pack(side="left", padx=(0, 4))
-        ttk.Button(af, text="Deselect All",
-                   command=self._deselect_all).pack(side="left", padx=(0, 16))
-
-        self.dest_var = tk.StringVar()
-        ttk.Button(af, text="\U0001F4C1 Destination",
-                   command=self._browse_dest).pack(side="left", padx=(0, 4))
-        ttk.Entry(af, textvariable=self.dest_var, width=28).pack(
-            side="left", fill="x", expand=True, padx=(0, 6))
-        self._dl_sel_btn = ttk.Button(af, text="\u2B07  Download Selected",
-                                      style="Green.TButton",
-                                      command=self._download_selected)
-        self._dl_sel_btn.pack(side="right")
 
     # -----------------------------------------------------------------------
     # Upload / Download helpers
@@ -575,7 +608,7 @@ class App:
             self.dest_var.set(p)
 
     def _upload(self):
-        local_file = self.file_path.get().strip()
+        local_file = self._normalize_path(self.file_path.get())
         if not local_file:
             messagebox.showerror("Error", "Select a file to upload.")
             return
@@ -585,7 +618,10 @@ class App:
         if not self._ensure_passwords():
             return
 
-        remote_dest = self.remote_path.get().strip()
+        remote_dest = self._normalize_path(self.remote_path.get())
+        if not remote_dest:
+            messagebox.showerror("Error", "Specify a remote path.")
+            return
         if remote_dest.endswith("/"):
             remote_dest += os.path.basename(local_file)
 
@@ -599,6 +635,17 @@ class App:
                 with self._open_connection() as ssh:
                     sftp = ssh.open_sftp()
                     try:
+                        # Verify remote directory exists
+                        remote_dir = remote_dest.rsplit("/", 1)[0]
+                        if remote_dir:
+                            try:
+                                sftp.stat(remote_dir)
+                            except FileNotFoundError:
+                                raise IOError(
+                                    f"Remote directory does not exist:\n"
+                                    f"{remote_dir}\n\n"
+                                    f"Create it on the server first.")
+
                         def _cb(transferred, total):
                             pct = (transferred / total * 100
                                    if total > 0 else 0)
@@ -636,18 +683,29 @@ class App:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _download(self):
-        dest_folder = self.local_path.get().strip()
+        dest_folder = self._normalize_path(self.local_path.get())
         if not dest_folder:
             messagebox.showerror("Error", "Select local destination folder.")
             return
-        remote_src = self.remote_path.get().strip()
+        if not os.path.isdir(dest_folder):
+            messagebox.showerror("Error",
+                                 f"Local folder not found:\n{dest_folder}")
+            return
+        remote_src = self._normalize_path(self.remote_path.get())
         if not remote_src:
             messagebox.showerror("Error", "Specify a remote path.")
+            return
+        if remote_src.endswith("/"):
+            messagebox.showerror(
+                "Error",
+                "Remote path looks like a directory (ends with /).\n"
+                "Please specify the full path to the file to download.")
             return
         if not self._ensure_passwords():
             return
 
-        local_file = os.path.join(dest_folder, os.path.basename(remote_src))
+        fname = remote_src.rsplit("/", 1)[-1] if "/" in remote_src else remote_src
+        local_file = os.path.join(dest_folder, fname)
 
         self._download_btn.state(["disabled"])
         self.status_var.set("Connecting for download \u2026")
@@ -659,6 +717,13 @@ class App:
                 with self._open_connection() as ssh:
                     sftp = ssh.open_sftp()
                     try:
+                        # Verify remote file exists
+                        try:
+                            sftp.stat(remote_src)
+                        except FileNotFoundError:
+                            raise IOError(
+                                f"Remote file not found:\n{remote_src}")
+
                         def _cb(transferred, total):
                             pct = (transferred / total * 100
                                    if total > 0 else 0)
@@ -934,7 +999,7 @@ class App:
             messagebox.showerror("Error", "No files selected.")
             return
 
-        dest = self.dest_var.get().strip()
+        dest = self._normalize_path(self.dest_var.get())
         if not dest:
             messagebox.showerror("Error",
                                  "Choose a local destination folder first.")
