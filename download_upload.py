@@ -2,7 +2,6 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import tkinter as tk          # still needed for StringVar, DoubleVar, Treeview
 from tkinter import ttk       # Treeview has no CTk equivalent
-import ctypes
 import os
 import re
 import shlex
@@ -37,29 +36,6 @@ BATCHES_PATH = "/var/agenonlineservice/batches"
 
 IS_WINDOWS = platform.system() == "Windows"
 
-# ---------------------------------------------------------------------------
-# DPI awareness (must run before ANY tkinter window is created)
-# ---------------------------------------------------------------------------
-_DPI_SCALE = 1.0  # baseline 96 DPI
-
-if IS_WINDOWS:
-    try:
-        # Per-monitor DPI awareness (v2) – best for multi-monitor setups
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
-        try:
-            # Fallback: system DPI awareness (v1)
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass  # Older Windows – no high-DPI API
-
-    try:
-        # Query actual DPI of primary monitor (96 = 100%)
-        _dpi = ctypes.windll.user32.GetDpiForSystem()
-        _DPI_SCALE = _dpi / 96.0
-    except Exception:
-        pass
-
 # Strict pattern for batch zip filenames:
 # YYYYMMDDHHmm_<systemid>_<serial>.zip
 ZIP_RE = re.compile(r"^(\d{12})_(\d+)_(\d+)\.zip$")
@@ -69,9 +45,6 @@ ZIP_RE = re.compile(r"^(\d{12})_(\d+)_(\d+)\.zip$")
 # ---------------------------------------------------------------------------
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
-# Disable CTk's own DPI scaling – we handle DPI via SetProcessDpiAwareness
-# so tkinter gets pixel-accurate coordinates from the OS.
-ctk.deactivate_automatic_dpi_awareness()
 
 # Accent colours used in a few places
 GREEN = "#27ae60"
@@ -110,21 +83,17 @@ def _setup_treeview_style(mode="dark"):
         scroll_bg = heading_bg
         scroll_trough = dark_bg
 
-    # Scale font/rowheight for DPI – base size 11 at 96 DPI
-    _tv_font_size = max(11, int(round(11 * _DPI_SCALE)))
-    _tv_rowheight = max(26, int(round(26 * _DPI_SCALE)))
-
     style.configure("Dark.Treeview",
                     background=dark_bg,
                     foreground=dark_fg,
                     fieldbackground=dark_bg,
-                    font=("Segoe UI", _tv_font_size),
-                    rowheight=_tv_rowheight,
+                    font=("Segoe UI", 13),
+                    rowheight=32,
                     borderwidth=0)
     style.configure("Dark.Treeview.Heading",
                     background=heading_bg,
                     foreground=heading_fg,
-                    font=("Segoe UI", _tv_font_size, "bold"),
+                    font=("Segoe UI", 13, "bold"),
                     relief="flat")
     style.map("Dark.Treeview",
               background=[("selected", sel_bg)],
@@ -204,7 +173,7 @@ class PasswordDialog(ctk.CTkToplevel):
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
         self.relay_entry = ctk.CTkEntry(main, show="\u25CF",
-                                        width=int(round(340 * _DPI_SCALE)),
+                                        width=340,
                                         font=ctk.CTkFont("Segoe UI", 12))
         self.relay_entry.pack(fill="x", pady=(6, 14))
 
@@ -217,7 +186,7 @@ class PasswordDialog(ctk.CTkToplevel):
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
         self.local_entry = ctk.CTkEntry(main, show="\u25CF",
-                                        width=int(round(340 * _DPI_SCALE)),
+                                        width=340,
                                         font=ctk.CTkFont("Segoe UI", 12))
         self.local_entry.pack(fill="x", pady=(6, 20))
 
@@ -271,14 +240,8 @@ class App:
     def __init__(self, root: ctk.CTk):
         self.root = root
         self.root.title("SCP Tool \u2014 Upload / Download / Batch Search")
-
-        # Scale window size and minsize to the primary monitor DPI
-        _w = int(round(940 * _DPI_SCALE))
-        _h = int(round(760 * _DPI_SCALE))
-        _mw = int(round(700 * _DPI_SCALE))
-        _mh = int(round(560 * _DPI_SCALE))
-        self.root.geometry(f"{_w}x{_h}")
-        self.root.minsize(_mw, _mh)
+        self.root.geometry("940x760")
+        self.root.minsize(700, 560)
 
         self._current_mode = "dark"
         _setup_treeview_style("dark")
@@ -794,16 +757,12 @@ class App:
         self._sort_col = None
         self._sort_asc = True
 
-        # Scale column widths to DPI
-        def _sw(px):
-            return max(40, int(round(px * _DPI_SCALE)))
-
-        self.tree.column("filename", width=_sw(220), minwidth=_sw(120), anchor="center")
-        self.tree.column("folder", width=_sw(100), minwidth=_sw(60), anchor="center")
-        self.tree.column("datetime", width=_sw(150), minwidth=_sw(100), anchor="center")
-        self.tree.column("system_id", width=_sw(100), minwidth=_sw(60), anchor="center")
-        self.tree.column("serial", width=_sw(90), minwidth=_sw(60), anchor="center")
-        self.tree.column("full_path", width=_sw(280), minwidth=_sw(140), anchor="w")
+        self.tree.column("filename", width=220, minwidth=120, anchor="center")
+        self.tree.column("folder", width=100, minwidth=60, anchor="center")
+        self.tree.column("datetime", width=150, minwidth=100, anchor="center")
+        self.tree.column("system_id", width=100, minwidth=60, anchor="center")
+        self.tree.column("serial", width=90, minwidth=60, anchor="center")
+        self.tree.column("full_path", width=280, minwidth=140, anchor="w")
 
         vsb = ttk.Scrollbar(tree_container, orient="vertical",
                             command=self.tree.yview,
