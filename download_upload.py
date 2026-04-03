@@ -57,6 +57,14 @@ LABEL_FG = "#dcdde1"
 MUTED_FG = "#7f8c8d"
 HEADING_FG = "#f5f6fa"
 
+# Fixed background colours matching the CTk "blue" theme palette.
+# Using explicit colours instead of "transparent" avoids the costly
+# fake-transparency recalculation that lags on every resize / move.
+_ROOT_BG = ("gray92", "gray14")      # CTk root window
+_FRM_BG  = ("gray86", "gray17")      # first-level CTkFrame / tab area
+_FRM2_BG = ("gray81", "gray20")      # nested (second-level) CTkFrame
+_DLG_BG  = ("#f0f0f0", "#2b2b2b")   # password dialog body
+
 
 def _setup_treeview_style(mode="dark"):
     """Style the Treeview (which is still a classic ttk widget) so it looks
@@ -156,7 +164,7 @@ class PasswordDialog(ctk.CTkToplevel):
 
         self.configure(fg_color=("#f0f0f0", "#2b2b2b"))
 
-        main = ctk.CTkFrame(self, fg_color="transparent")
+        main = ctk.CTkFrame(self, fg_color=_DLG_BG)
         main.pack(fill="both", expand=True, padx=24, pady=20)
 
         # Title
@@ -191,7 +199,7 @@ class PasswordDialog(ctk.CTkToplevel):
         self.local_entry.pack(fill="x", pady=(6, 20))
 
         # Buttons
-        btn_frame = ctk.CTkFrame(main, fg_color="transparent")
+        btn_frame = ctk.CTkFrame(main, fg_color=_DLG_BG)
         btn_frame.pack(fill="x")
         ctk.CTkButton(btn_frame, text="Cancel", width=100,
                       fg_color="gray40", hover_color="gray50",
@@ -258,7 +266,7 @@ class App:
         conn_frame = ctk.CTkFrame(root, corner_radius=10)
         conn_frame.pack(fill="x", padx=12, pady=(10, 4))
 
-        top_row = ctk.CTkFrame(conn_frame, fg_color="transparent")
+        top_row = ctk.CTkFrame(conn_frame, fg_color=_FRM_BG)
         top_row.pack(fill="x", padx=12, pady=(10, 2))
 
         ctk.CTkLabel(top_row, text="Remote Port:",
@@ -301,7 +309,7 @@ class App:
             anchor="w", padx=14, pady=(0, 8))
 
         # -- progress bar + status (pack early so they stay at bottom) --------
-        bottom = ctk.CTkFrame(root, fg_color="transparent")
+        bottom = ctk.CTkFrame(root, fg_color=_ROOT_BG)
         bottom.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
 
         self.progress_var = tk.DoubleVar(value=0)
@@ -521,7 +529,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
             anchor="w", padx=12, pady=(8, 4))
 
-        upload_row = ctk.CTkFrame(uf, fg_color="transparent")
+        upload_row = ctk.CTkFrame(uf, fg_color=_FRM2_BG)
         upload_row.pack(fill="x", padx=12, pady=(0, 4))
 
         self.file_path = tk.StringVar()
@@ -549,7 +557,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
             anchor="w", padx=12, pady=(8, 4))
 
-        dl_row = ctk.CTkFrame(df, fg_color="transparent")
+        dl_row = ctk.CTkFrame(df, fg_color=_FRM2_BG)
         dl_row.pack(fill="x", padx=12, pady=(0, 4))
 
         self.local_path = tk.StringVar()
@@ -584,11 +592,11 @@ class App:
             anchor="w", padx=12, pady=(8, 4))
 
         # Date / Time rows
-        dt_frame = ctk.CTkFrame(cf, fg_color="transparent")
+        dt_frame = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
         dt_frame.pack(fill="x", padx=12, pady=(0, 4))
 
         # FROM row
-        from_row = ctk.CTkFrame(dt_frame, fg_color="transparent")
+        from_row = ctk.CTkFrame(dt_frame, fg_color=_FRM2_BG)
         from_row.pack(fill="x", pady=(0, 4))
 
         ctk.CTkLabel(from_row, text="From:",
@@ -622,7 +630,7 @@ class App:
                      justify="center").pack(side="left")
 
         # TO row
-        to_row = ctk.CTkFrame(dt_frame, fg_color="transparent")
+        to_row = ctk.CTkFrame(dt_frame, fg_color=_FRM2_BG)
         to_row.pack(fill="x", pady=(0, 4))
 
         ctk.CTkLabel(to_row, text="To:",
@@ -660,7 +668,7 @@ class App:
             side="left", padx=(12, 0))
 
         # System IDs
-        id_row = ctk.CTkFrame(cf, fg_color="transparent")
+        id_row = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
         id_row.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkLabel(id_row, text="System IDs*:",
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
@@ -674,7 +682,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
 
         # Serial number
-        sn_row = ctk.CTkFrame(cf, fg_color="transparent")
+        sn_row = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
         sn_row.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkLabel(sn_row, text="Serial Number:",
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
@@ -687,7 +695,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
 
         # Search button
-        btn_row = ctk.CTkFrame(cf, fg_color="transparent")
+        btn_row = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
         btn_row.pack(fill="x", padx=12, pady=(2, 10))
         self._search_btn = ctk.CTkButton(
             btn_row, text="Search", width=140,
@@ -701,7 +709,7 @@ class App:
             side="left", padx=14)
 
         # -- actions bar (packed before results so always visible) -------------
-        af = ctk.CTkFrame(tab, fg_color="transparent")
+        af = ctk.CTkFrame(tab, fg_color=_FRM_BG)
         af.pack(side="bottom", fill="x", padx=4, pady=(4, 2))
 
         ctk.CTkButton(af, text="Select All", width=90,
