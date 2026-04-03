@@ -162,7 +162,7 @@ class PasswordDialog(ctk.CTkToplevel):
         self.resizable(False, False)
         self.result = None
 
-        self.configure(fg_color=("#f0f0f0", "#2b2b2b"))
+        self.configure(fg_color=_DLG_BG)
 
         main = ctk.CTkFrame(self, fg_color=_DLG_BG)
         main.pack(fill="both", expand=True, padx=24, pady=20)
@@ -351,7 +351,7 @@ class App:
         # Update the Treeview container background to match
         if hasattr(self, "tree"):
             parent = self.tree.master
-            bg = "#2b2b2b" if mode == "dark" else "#f0f0f0"
+            bg = _DLG_BG[1] if mode == "dark" else _DLG_BG[0]
             parent.configure(bg=bg)
 
     # -----------------------------------------------------------------------
@@ -605,7 +605,7 @@ class App:
 
         if HAS_TKCALENDAR:
             # DateEntry is a tkinter widget – embed in a tk.Frame
-            date_holder_from = tk.Frame(from_row, bg="#2b2b2b")
+            date_holder_from = tk.Frame(from_row, bg=_FRM2_BG[1])
             date_holder_from.pack(side="left", padx=(4, 8))
             self.from_date = DateEntry(date_holder_from, width=11,
                                        date_pattern="dd/MM/yyyy",
@@ -638,7 +638,7 @@ class App:
                      width=50).pack(side="left")
 
         if HAS_TKCALENDAR:
-            date_holder_to = tk.Frame(to_row, bg="#2b2b2b")
+            date_holder_to = tk.Frame(to_row, bg=_FRM2_BG[1])
             date_holder_to.pack(side="left", padx=(4, 8))
             self.to_date = DateEntry(date_holder_to, width=11,
                                      date_pattern="dd/MM/yyyy",
@@ -743,7 +743,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
             anchor="w", padx=12, pady=(8, 2))
 
-        tree_container = tk.Frame(rf, bg="#2b2b2b")
+        tree_container = tk.Frame(rf, bg=_FRM2_BG[1])
         tree_container.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         cols = ("filename", "folder", "datetime", "system_id", "serial",
