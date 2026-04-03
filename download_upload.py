@@ -63,44 +63,58 @@ MUTED_FG = "#7f8c8d"
 HEADING_FG = "#f5f6fa"
 
 
-def _setup_treeview_style():
+def _setup_treeview_style(mode="dark"):
     """Style the Treeview (which is still a classic ttk widget) so it looks
-    at home inside the dark CustomTkinter window."""
+    at home inside the dark or light CustomTkinter window."""
     style = ttk.Style()
     style.theme_use("clam")
 
-    dark_bg = "#2b2b2b"
-    dark_fg = "#dcdde1"
-    sel_bg = "#3498db"
-    heading_bg = "#343638"
+    if mode == "dark":
+        dark_bg = "#2b2b2b"
+        dark_fg = "#dcdde1"
+        sel_bg = "#3498db"
+        heading_bg = "#343638"
+        heading_fg = "#ecf0f1"
+        heading_active = "#3e4042"
+        scroll_bg = heading_bg
+        scroll_trough = dark_bg
+    else:
+        dark_bg = "#f0f0f0"
+        dark_fg = "#1a1a1a"
+        sel_bg = "#2980b9"
+        heading_bg = "#d6d6d6"
+        heading_fg = "#1a1a1a"
+        heading_active = "#c0c0c0"
+        scroll_bg = heading_bg
+        scroll_trough = dark_bg
 
     style.configure("Dark.Treeview",
                     background=dark_bg,
                     foreground=dark_fg,
                     fieldbackground=dark_bg,
-                    font=("Segoe UI", 13),
-                    rowheight=32,
+                    font=("Segoe UI", 15),
+                    rowheight=38,
                     borderwidth=0)
     style.configure("Dark.Treeview.Heading",
                     background=heading_bg,
-                    foreground="#ecf0f1",
-                    font=("Segoe UI", 13, "bold"),
+                    foreground=heading_fg,
+                    font=("Segoe UI", 15, "bold"),
                     relief="flat")
     style.map("Dark.Treeview",
               background=[("selected", sel_bg)],
               foreground=[("selected", "white")])
     style.map("Dark.Treeview.Heading",
-              background=[("active", "#3e4042")])
+              background=[("active", heading_active)])
 
     # Scrollbar styling
     style.configure("Dark.Vertical.TScrollbar",
-                    background=heading_bg,
-                    troughcolor=dark_bg,
+                    background=scroll_bg,
+                    troughcolor=scroll_trough,
                     borderwidth=0,
                     arrowsize=14)
     style.configure("Dark.Horizontal.TScrollbar",
-                    background=heading_bg,
-                    troughcolor=dark_bg,
+                    background=scroll_bg,
+                    troughcolor=scroll_trough,
                     borderwidth=0,
                     arrowsize=14)
 
@@ -160,7 +174,7 @@ class PasswordDialog(ctk.CTkToplevel):
                      font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
             anchor="w")
         ctk.CTkLabel(main,
-                     text=f"{JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}",
+                     text="proxy",
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
         self.relay_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
@@ -232,14 +246,16 @@ class App:
         self.root.geometry("940x760")
         self.root.minsize(700, 560)
 
-        # Apply acrylic / mica on Windows if pywinstyles is available
+        # Apply optimized window style on Windows if pywinstyles is available
+        # (uses "optimized" instead of "acrylic" to prevent DWM resize lag)
         if IS_WINDOWS and HAS_PYWINSTYLES:
             try:
-                pywinstyles.apply_style(self.root, "acrylic")
+                pywinstyles.apply_style(self.root, "optimized")
             except Exception:
                 pass  # Silently ignore if not supported on this OS version
 
-        _setup_treeview_style()
+        self._current_mode = "dark"
+        _setup_treeview_style("dark")
         _enable_paste(self.root)
 
         # -- passwords (stored in memory only) --------------------------------
@@ -278,7 +294,17 @@ class App:
                                         font=ctk.CTkFont("Segoe UI", 11))
         self._auth_label.pack(side="left", padx=4)
 
-        info_text = (f"Jump: {JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}  -->  "
+        # Theme selector (right side of connection bar)
+        self._theme_var = tk.StringVar(value="Dark")
+        theme_menu = ctk.CTkOptionMenu(
+            top_row, values=["Dark", "Light"],
+            variable=self._theme_var,
+            width=90,
+            font=ctk.CTkFont("Segoe UI", 11),
+            command=self._change_theme)
+        theme_menu.pack(side="right", padx=(8, 0))
+
+        info_text = (f"Jump: proxy  -->  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
         ctk.CTkLabel(conn_frame, text=info_text,
                      text_color=MUTED_FG,
@@ -313,6 +339,23 @@ class App:
 
         # Clean shutdown when the user closes the window
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # -----------------------------------------------------------------------
+    # Theme switching
+    # -----------------------------------------------------------------------
+    def _change_theme(self, choice):
+        """Switch between Dark and Light appearance mode at runtime."""
+        mode = choice.lower()
+        if mode == self._current_mode:
+            return
+        self._current_mode = mode
+        ctk.set_appearance_mode(mode)
+        _setup_treeview_style(mode)
+        # Update the Treeview container background to match
+        if hasattr(self, "tree"):
+            parent = self.tree.master
+            bg = "#2b2b2b" if mode == "dark" else "#f0f0f0"
+            parent.configure(bg=bg)
 
     # -----------------------------------------------------------------------
     # Authentication
