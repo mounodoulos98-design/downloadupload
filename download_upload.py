@@ -265,6 +265,10 @@ class App:
 
         ctk.CTkButton(top_row, text="Login", width=110,
                       command=self._prompt_passwords).pack(
+            side="left", padx=(0, 4))
+        ctk.CTkButton(top_row, text="Logout", width=90,
+                      fg_color="gray40", hover_color="gray50",
+                      command=self._logout).pack(
             side="left", padx=(0, 12))
 
         self._auth_var = tk.StringVar(value="Not authenticated")
@@ -307,6 +311,9 @@ class App:
         self._build_upload_download_tab()
         self._build_batch_search_tab()
 
+        # Clean shutdown when the user closes the window
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
     # -----------------------------------------------------------------------
     # Authentication
     # -----------------------------------------------------------------------
@@ -323,6 +330,14 @@ class App:
         self._prompt_passwords()
         return bool(self._relay_pw and self._local_pw)
 
+    def _logout(self):
+        """Clear stored passwords and update the auth indicator."""
+        self._relay_pw = None
+        self._local_pw = None
+        self._auth_var.set("Not authenticated")
+        self._auth_label.configure(text_color=RED)
+        self.status_var.set("Logged out")
+
     def _clear_passwords(self):
         self._relay_pw = None
         self._local_pw = None
@@ -331,6 +346,13 @@ class App:
     def _update_auth_indicator_disconnected(self):
         self._auth_var.set("Not authenticated")
         self._auth_label.configure(text_color=RED)
+
+    def _on_close(self):
+        """Handle window close: clear passwords and destroy the root window.
+        Daemon threads are terminated automatically when the main thread exits."""
+        self._relay_pw = None
+        self._local_pw = None
+        self.root.destroy()
 
     # -----------------------------------------------------------------------
     # Path helpers
@@ -365,6 +387,7 @@ class App:
                     username=JUMP_USER,
                     password=self._relay_pw,
                     timeout=15,
+                    banner_timeout=15,
                     allow_agent=False,
                     look_for_keys=False,
                 )
@@ -378,6 +401,7 @@ class App:
 
             try:
                 transport = jump.get_transport()
+                transport.set_keepalive(30)
                 channel = transport.open_channel(
                     "direct-tcpip",
                     (REMOTE_HOST, int(self.remote_port.get())),
@@ -394,6 +418,7 @@ class App:
                     password=self._local_pw,
                     sock=channel,
                     timeout=15,
+                    banner_timeout=15,
                     allow_agent=False,
                     look_for_keys=False,
                 )
@@ -404,6 +429,10 @@ class App:
             except Exception as exc:
                 raise ConnectionError(
                     f"Cannot connect to local server:\n{exc}")
+
+            remote_transport = remote.get_transport()
+            if remote_transport:
+                remote_transport.set_keepalive(30)
 
             yield remote
 
