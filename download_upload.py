@@ -332,10 +332,7 @@ class App:
 
     def _logout(self):
         """Clear stored passwords and update the auth indicator."""
-        self._relay_pw = None
-        self._local_pw = None
-        self._auth_var.set("Not authenticated")
-        self._auth_label.configure(text_color=RED)
+        self._clear_passwords()
         self.status_var.set("Logged out")
 
     def _clear_passwords(self):
@@ -350,8 +347,7 @@ class App:
     def _on_close(self):
         """Handle window close: clear passwords and destroy the root window.
         Daemon threads are terminated automatically when the main thread exits."""
-        self._relay_pw = None
-        self._local_pw = None
+        self._clear_passwords()
         self.root.destroy()
 
     # -----------------------------------------------------------------------
