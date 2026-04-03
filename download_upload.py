@@ -1,25 +1,25 @@
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-import tkinter as tk          # still needed for StringVar, DoubleVar, Treeview
-from tkinter import ttk       # Treeview has no CTk equivalent
+import sys
 import os
 import re
 import shlex
-import threading
 import platform
 from datetime import datetime, timedelta
 from contextlib import contextmanager
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget,
+    QTableWidget, QTableWidgetItem, QComboBox, QDateEdit, QDialog,
+    QMessageBox, QFileDialog, QHeaderView, QAbstractItemView, QFrame,
+    QSizePolicy,
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QDate
+from PyQt6.QtGui import QFont, QColor, QPalette
 
 try:
     import paramiko
 except ImportError:
     paramiko = None
-
-try:
-    from tkcalendar import DateEntry
-    HAS_TKCALENDAR = True
-except ImportError:
-    HAS_TKCALENDAR = False
 
 # ---------------------------------------------------------------------------
 # Connection constants
@@ -41,328 +41,830 @@ IS_WINDOWS = platform.system() == "Windows"
 ZIP_RE = re.compile(r"^(\d{12})_(\d+)_(\d+)\.zip$")
 
 # ---------------------------------------------------------------------------
-# CustomTkinter appearance
+# Colour constants
 # ---------------------------------------------------------------------------
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
-
-# Accent colours used in a few places
 GREEN = "#27ae60"
 GREEN_HOVER = "#2ecc71"
 BLUE = "#2980b9"
 BLUE_HOVER = "#3498db"
 RED = "#e74c3c"
-RED_HOVER = "#c0392b"
 LABEL_FG = "#dcdde1"
 MUTED_FG = "#7f8c8d"
 HEADING_FG = "#f5f6fa"
 
-# Fixed background colours matching the CTk "blue" theme palette.
-# Using explicit colours instead of "transparent" avoids the costly
-# fake-transparency recalculation that lags on every resize / move.
-_ROOT_BG = ("gray92", "gray14")      # CTk root window
-_FRM_BG  = ("gray86", "gray17")      # first-level CTkFrame / tab area
-_FRM2_BG = ("gray81", "gray20")      # nested (second-level) CTkFrame
-_DLG_BG  = ("#f0f0f0", "#2b2b2b")   # password dialog body
+# ---------------------------------------------------------------------------
+# QSS theme stylesheets
+# ---------------------------------------------------------------------------
+_DARK_QSS = """
+QMainWindow, QWidget#central {
+    background-color: #2b2b2b;
+}
+QTabWidget::pane {
+    background-color: #343638;
+    border: 1px solid #444;
+    border-radius: 6px;
+}
+QTabBar::tab {
+    background: #3d3f41;
+    color: #dcdde1;
+    padding: 6px 18px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 2px;
+    font-family: 'Segoe UI';
+    font-size: 12px;
+}
+QTabBar::tab:selected {
+    background: #343638;
+    color: #f5f6fa;
+    font-weight: bold;
+}
+QFrame#connFrame, QFrame#sectionFrame {
+    background-color: #343638;
+    border-radius: 10px;
+}
+QFrame#innerFrame {
+    background-color: #3d3f41;
+    border-radius: 6px;
+}
+QLabel {
+    color: #dcdde1;
+    font-family: 'Segoe UI';
+}
+QLabel#muted {
+    color: #7f8c8d;
+}
+QLabel#heading {
+    color: #f5f6fa;
+    font-weight: bold;
+}
+QLabel#authLabel {
+    font-family: 'Segoe UI';
+    font-size: 11px;
+}
+QLineEdit {
+    background-color: #3d3f41;
+    color: #dcdde1;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: 'Segoe UI';
+    font-size: 12px;
+}
+QLineEdit:focus {
+    border: 1px solid #3498db;
+}
+QPushButton {
+    background-color: #2980b9;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-family: 'Segoe UI';
+    font-size: 12px;
+}
+QPushButton:hover {
+    background-color: #3498db;
+}
+QPushButton:disabled {
+    background-color: #555;
+    color: #999;
+}
+QPushButton#gray {
+    background-color: #666;
+}
+QPushButton#gray:hover {
+    background-color: #777;
+}
+QPushButton#green {
+    background-color: #27ae60;
+}
+QPushButton#green:hover {
+    background-color: #2ecc71;
+}
+QProgressBar {
+    background-color: #3d3f41;
+    border: none;
+    border-radius: 4px;
+    height: 8px;
+    text-align: center;
+    font-size: 0px;
+}
+QProgressBar::chunk {
+    background-color: #2980b9;
+    border-radius: 4px;
+}
+QTableWidget {
+    background-color: #2b2b2b;
+    color: #dcdde1;
+    gridline-color: #444;
+    border: none;
+    font-family: 'Segoe UI';
+    font-size: 13px;
+}
+QTableWidget::item:selected {
+    background-color: #3498db;
+    color: white;
+}
+QHeaderView::section {
+    background-color: #343638;
+    color: #ecf0f1;
+    font-family: 'Segoe UI';
+    font-size: 13px;
+    font-weight: bold;
+    border: none;
+    padding: 4px;
+}
+QHeaderView::section:hover {
+    background-color: #3e4042;
+}
+QScrollBar:vertical {
+    background: #2b2b2b;
+    width: 14px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: #343638;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar:horizontal {
+    background: #2b2b2b;
+    height: 14px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background: #343638;
+    min-width: 20px;
+    border-radius: 4px;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0; width: 0;
+}
+QComboBox {
+    background-color: #3d3f41;
+    color: #dcdde1;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: 'Segoe UI';
+    font-size: 11px;
+}
+QComboBox::drop-down {
+    border: none;
+}
+QComboBox QAbstractItemView {
+    background-color: #3d3f41;
+    color: #dcdde1;
+    selection-background-color: #3498db;
+}
+QDateEdit {
+    background-color: #3d3f41;
+    color: #dcdde1;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: 'Segoe UI';
+    font-size: 11px;
+}
+QDateEdit::drop-down {
+    border: none;
+}
+QCalendarWidget {
+    background-color: #343638;
+    color: #dcdde1;
+}
+"""
 
-
-def _setup_treeview_style(mode="dark"):
-    """Style the Treeview (which is still a classic ttk widget) so it looks
-    at home inside the dark or light CustomTkinter window."""
-    style = ttk.Style()
-    style.theme_use("clam")
-
-    if mode == "dark":
-        dark_bg = "#2b2b2b"
-        dark_fg = "#dcdde1"
-        sel_bg = "#3498db"
-        heading_bg = "#343638"
-        heading_fg = "#ecf0f1"
-        heading_active = "#3e4042"
-        scroll_bg = heading_bg
-        scroll_trough = dark_bg
-    else:
-        dark_bg = "#f0f0f0"
-        dark_fg = "#1a1a1a"
-        sel_bg = "#2980b9"
-        heading_bg = "#d6d6d6"
-        heading_fg = "#1a1a1a"
-        heading_active = "#c0c0c0"
-        scroll_bg = heading_bg
-        scroll_trough = dark_bg
-
-    style.configure("Dark.Treeview",
-                    background=dark_bg,
-                    foreground=dark_fg,
-                    fieldbackground=dark_bg,
-                    font=("Segoe UI", 13),
-                    rowheight=32,
-                    borderwidth=0)
-    style.configure("Dark.Treeview.Heading",
-                    background=heading_bg,
-                    foreground=heading_fg,
-                    font=("Segoe UI", 13, "bold"),
-                    relief="flat")
-    style.map("Dark.Treeview",
-              background=[("selected", sel_bg)],
-              foreground=[("selected", "white")])
-    style.map("Dark.Treeview.Heading",
-              background=[("active", heading_active)])
-
-    # Scrollbar styling
-    style.configure("Dark.Vertical.TScrollbar",
-                    background=scroll_bg,
-                    troughcolor=scroll_trough,
-                    borderwidth=0,
-                    arrowsize=14)
-    style.configure("Dark.Horizontal.TScrollbar",
-                    background=scroll_bg,
-                    troughcolor=scroll_trough,
-                    borderwidth=0,
-                    arrowsize=14)
-
-
-def _enable_paste(root):
-    """Bind Ctrl+V / Cmd+V at the *Entry class level* so paste works in every
-    tk.Entry widget – including the inner entries that CTkEntry creates.
-
-    Using ``bind_class`` targets the widget that actually has keyboard focus,
-    which is more reliable than ``bind_all`` (the latter fires after all
-    per-widget handlers and its ``"break"`` return cannot suppress them).
-    """
-    def _paste(event):
-        w = event.widget
-        try:
-            clip = root.clipboard_get()
-        except tk.TclError:
-            return
-        try:
-            if w.selection_present():
-                w.delete(tk.SEL_FIRST, tk.SEL_LAST)
-        except tk.TclError:
-            pass  # no selection – that's fine
-        w.insert(tk.INSERT, clip)
-        return "break"
-
-    modifier = "Command" if platform.system() == "Darwin" else "Control"
-    root.bind_class("Entry", f"<{modifier}-v>", _paste)
-    root.bind_class("Entry", f"<{modifier}-V>", _paste)
+_LIGHT_QSS = """
+QMainWindow, QWidget#central {
+    background-color: #f0f0f0;
+}
+QTabWidget::pane {
+    background-color: #d6d6d6;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+}
+QTabBar::tab {
+    background: #c0c0c0;
+    color: #1a1a1a;
+    padding: 6px 18px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 2px;
+    font-family: 'Segoe UI';
+    font-size: 12px;
+}
+QTabBar::tab:selected {
+    background: #d6d6d6;
+    color: #1a1a1a;
+    font-weight: bold;
+}
+QFrame#connFrame, QFrame#sectionFrame {
+    background-color: #d6d6d6;
+    border-radius: 10px;
+}
+QFrame#innerFrame {
+    background-color: #c0c0c0;
+    border-radius: 6px;
+}
+QLabel {
+    color: #1a1a1a;
+    font-family: 'Segoe UI';
+}
+QLabel#muted {
+    color: #7f8c8d;
+}
+QLabel#heading {
+    color: #1a1a1a;
+    font-weight: bold;
+}
+QLabel#authLabel {
+    font-family: 'Segoe UI';
+    font-size: 11px;
+}
+QLineEdit {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: 'Segoe UI';
+    font-size: 12px;
+}
+QLineEdit:focus {
+    border: 1px solid #2980b9;
+}
+QPushButton {
+    background-color: #2980b9;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-family: 'Segoe UI';
+    font-size: 12px;
+}
+QPushButton:hover {
+    background-color: #3498db;
+}
+QPushButton:disabled {
+    background-color: #bbb;
+    color: #888;
+}
+QPushButton#gray {
+    background-color: #999;
+}
+QPushButton#gray:hover {
+    background-color: #aaa;
+}
+QPushButton#green {
+    background-color: #27ae60;
+}
+QPushButton#green:hover {
+    background-color: #2ecc71;
+}
+QProgressBar {
+    background-color: #c0c0c0;
+    border: none;
+    border-radius: 4px;
+    height: 8px;
+    text-align: center;
+    font-size: 0px;
+}
+QProgressBar::chunk {
+    background-color: #2980b9;
+    border-radius: 4px;
+}
+QTableWidget {
+    background-color: #f0f0f0;
+    color: #1a1a1a;
+    gridline-color: #bbb;
+    border: none;
+    font-family: 'Segoe UI';
+    font-size: 13px;
+}
+QTableWidget::item:selected {
+    background-color: #2980b9;
+    color: white;
+}
+QHeaderView::section {
+    background-color: #d6d6d6;
+    color: #1a1a1a;
+    font-family: 'Segoe UI';
+    font-size: 13px;
+    font-weight: bold;
+    border: none;
+    padding: 4px;
+}
+QHeaderView::section:hover {
+    background-color: #c0c0c0;
+}
+QScrollBar:vertical {
+    background: #f0f0f0;
+    width: 14px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: #d6d6d6;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar:horizontal {
+    background: #f0f0f0;
+    height: 14px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background: #d6d6d6;
+    min-width: 20px;
+    border-radius: 4px;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0; width: 0;
+}
+QComboBox {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: 'Segoe UI';
+    font-size: 11px;
+}
+QComboBox::drop-down {
+    border: none;
+}
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    selection-background-color: #2980b9;
+}
+QDateEdit {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: 'Segoe UI';
+    font-size: 11px;
+}
+QDateEdit::drop-down {
+    border: none;
+}
+QCalendarWidget {
+    background-color: #d6d6d6;
+    color: #1a1a1a;
+}
+"""
 
 
 # ---------------------------------------------------------------------------
-# Password dialog
+# Password dialog (QDialog)
 # ---------------------------------------------------------------------------
-class PasswordDialog(ctk.CTkToplevel):
+class PasswordDialog(QDialog):
     """Modal dialog asking for relay and local server passwords."""
 
-    def __init__(self, parent):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.transient(parent)
-        self.title("SSH Authentication")
-        self.resizable(False, False)
+        self.setWindowTitle("SSH Authentication")
+        self.setFixedSize(400, 300)
+        self.setModal(True)
         self.result = None
 
-        self.configure(fg_color=_DLG_BG)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
 
-        main = ctk.CTkFrame(self, fg_color=_DLG_BG)
-        main.pack(fill="both", expand=True, padx=24, pady=20)
-
-        # Title
-        ctk.CTkLabel(main, text="Enter SSH Passwords",
-                     font=ctk.CTkFont("Segoe UI", 16, "bold")).pack(
-            pady=(0, 16))
+        title = QLabel("Enter SSH Passwords")
+        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        layout.addSpacing(12)
 
         # Relay server password
-        ctk.CTkLabel(main, text="Password for Relay Server:",
-                     font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
-            anchor="w")
-        ctk.CTkLabel(main,
-                     text=JUMP_DISPLAY,
-                     text_color=MUTED_FG,
-                     font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
-        self.relay_entry = ctk.CTkEntry(main, show="\u25CF",
-                                        width=340,
-                                        font=ctk.CTkFont("Segoe UI", 12))
-        self.relay_entry.pack(fill="x", pady=(6, 14))
+        relay_label = QLabel("Password for Relay Server:")
+        relay_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        layout.addWidget(relay_label)
+
+        relay_hint = QLabel(JUMP_DISPLAY)
+        relay_hint.setObjectName("muted")
+        relay_hint.setFont(QFont("Segoe UI", 10))
+        layout.addWidget(relay_hint)
+
+        self.relay_entry = QLineEdit()
+        self.relay_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        self.relay_entry.setFont(QFont("Segoe UI", 12))
+        layout.addWidget(self.relay_entry)
+        layout.addSpacing(10)
 
         # Local server password
-        ctk.CTkLabel(main, text="Password for Local Server:",
-                     font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
-            anchor="w")
-        ctk.CTkLabel(main,
-                     text=f"{REMOTE_USER}@{REMOTE_HOST}:<port>",
-                     text_color=MUTED_FG,
-                     font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
-        self.local_entry = ctk.CTkEntry(main, show="\u25CF",
-                                        width=340,
-                                        font=ctk.CTkFont("Segoe UI", 12))
-        self.local_entry.pack(fill="x", pady=(6, 20))
+        local_label = QLabel("Password for Local Server:")
+        local_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        layout.addWidget(local_label)
+
+        local_hint = QLabel(f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
+        local_hint.setObjectName("muted")
+        local_hint.setFont(QFont("Segoe UI", 10))
+        layout.addWidget(local_hint)
+
+        self.local_entry = QLineEdit()
+        self.local_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        self.local_entry.setFont(QFont("Segoe UI", 12))
+        layout.addWidget(self.local_entry)
+        layout.addSpacing(16)
 
         # Buttons
-        btn_frame = ctk.CTkFrame(main, fg_color=_DLG_BG)
-        btn_frame.pack(fill="x")
-        ctk.CTkButton(btn_frame, text="Cancel", width=100,
-                      fg_color="gray40", hover_color="gray50",
-                      command=self._cancel).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(btn_frame, text="Connect", width=140,
-                      fg_color=GREEN, hover_color=GREEN_HOVER,
-                      command=self._ok).pack(side="right")
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
 
-        # Bindings
-        self.relay_entry.focus_set()
-        self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.bind("<Return>", lambda e: self._ok())
-        self.bind("<Escape>", lambda e: self._cancel())
+        connect_btn = QPushButton("Connect")
+        connect_btn.setObjectName("green")
+        connect_btn.setFixedWidth(140)
+        connect_btn.clicked.connect(self._ok)
+        btn_layout.addWidget(connect_btn)
 
-        # Center on parent
-        self.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width() -
-                                     self.winfo_width()) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() -
-                                     self.winfo_height()) // 2
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("gray")
+        cancel_btn.setFixedWidth(100)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
 
-        self.grab_set()
-        self.wait_window()
+        layout.addLayout(btn_layout)
+
+        self.relay_entry.setFocus()
+        self.relay_entry.returnPressed.connect(
+            lambda: self.local_entry.setFocus())
+        self.local_entry.returnPressed.connect(self._ok)
 
     def _ok(self):
-        relay = self.relay_entry.get()
-        local = self.local_entry.get()
+        relay = self.relay_entry.text().strip()
+        local = self.local_entry.text().strip()
         if not relay or not local:
-            messagebox.showwarning("Missing Password",
-                                   "Both passwords are required.",
-                                   parent=self)
+            QMessageBox.warning(self, "Missing Password",
+                                "Both passwords are required.")
             return
         self.result = (relay, local)
-        self.destroy()
+        self.accept()
 
-    def _cancel(self):
-        self.result = None
-        self.destroy()
+
+# ---------------------------------------------------------------------------
+# Worker threads (QThread subclasses with signals)
+# ---------------------------------------------------------------------------
+class UploadWorker(QThread):
+    progress = pyqtSignal(float)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str, str)       # (title, message)
+    success = pyqtSignal(str)          # message
+    clear_passwords = pyqtSignal()
+    finished_work = pyqtSignal()
+
+    def __init__(self, app, local_file, remote_dest):
+        super().__init__()
+        self._app = app
+        self._local_file = local_file
+        self._remote_dest = remote_dest
+
+    def run(self):
+        try:
+            with self._app._open_connection() as ssh:
+                sftp = ssh.open_sftp()
+                try:
+                    remote_dest = self._remote_dest
+                    if "/" in remote_dest:
+                        remote_dir = remote_dest.rsplit("/", 1)[0]
+                    else:
+                        remote_dir = ""
+                    if remote_dir:
+                        try:
+                            sftp.stat(remote_dir)
+                        except FileNotFoundError:
+                            raise IOError(
+                                f"Remote directory does not exist:\n"
+                                f"{remote_dir}\n\n"
+                                f"Create it on the server first.")
+
+                    def _cb(transferred, total):
+                        pct = transferred / total * 100 if total > 0 else 0
+                        self.progress.emit(pct)
+                        self.status.emit(f"Uploading... {pct:.0f}%")
+
+                    sftp.put(self._local_file, remote_dest, callback=_cb)
+                finally:
+                    sftp.close()
+
+            self.progress.emit(100)
+            self.success.emit(f"Uploaded to:\n{self._remote_dest}")
+            self.status.emit("Upload complete")
+
+        except ConnectionError as exc:
+            self.clear_passwords.emit()
+            self.error.emit("Connection Error", str(exc))
+            self.status.emit("Upload failed")
+            self.progress.emit(0)
+        except Exception as exc:
+            self.error.emit("Upload Error", str(exc))
+            self.status.emit("Upload failed")
+            self.progress.emit(0)
+        finally:
+            self.finished_work.emit()
+
+
+class DownloadWorker(QThread):
+    progress = pyqtSignal(float)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str, str)
+    success = pyqtSignal(str)
+    clear_passwords = pyqtSignal()
+    finished_work = pyqtSignal()
+
+    def __init__(self, app, remote_src, local_file):
+        super().__init__()
+        self._app = app
+        self._remote_src = remote_src
+        self._local_file = local_file
+
+    def run(self):
+        try:
+            with self._app._open_connection() as ssh:
+                sftp = ssh.open_sftp()
+                try:
+                    try:
+                        sftp.stat(self._remote_src)
+                    except FileNotFoundError:
+                        raise IOError(
+                            f"Remote file not found:\n{self._remote_src}")
+
+                    def _cb(transferred, total):
+                        pct = transferred / total * 100 if total > 0 else 0
+                        self.progress.emit(pct)
+                        self.status.emit(f"Downloading... {pct:.0f}%")
+
+                    sftp.get(self._remote_src, self._local_file, callback=_cb)
+                finally:
+                    sftp.close()
+
+            self.progress.emit(100)
+            self.success.emit(f"Downloaded to:\n{self._local_file}")
+            self.status.emit("Download complete")
+
+        except ConnectionError as exc:
+            self.clear_passwords.emit()
+            self.error.emit("Connection Error", str(exc))
+            self.status.emit("Download failed")
+            self.progress.emit(0)
+        except Exception as exc:
+            self.error.emit("Download Error", str(exc))
+            self.status.emit("Download failed")
+            self.progress.emit(0)
+        finally:
+            self.finished_work.emit()
+
+
+class SearchWorker(QThread):
+    progress = pyqtSignal(float)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str, str)
+    results_ready = pyqtSignal(list)
+    clear_passwords = pyqtSignal()
+    finished_work = pyqtSignal()
+
+    def __init__(self, app, sys_ids, serial_filter, from_dt, to_dt):
+        super().__init__()
+        self._app = app
+        self._sys_ids = sys_ids
+        self._serial_filter = serial_filter
+        self._from_dt = from_dt
+        self._to_dt = to_dt
+
+    def run(self):
+        try:
+            with self._app._open_connection() as ssh:
+                self.status.emit("Searching for zip files...")
+
+                find_cmd = (
+                    f"find {shlex.quote(BATCHES_PATH)} "
+                    f"-type f -name '*.zip' 2>/dev/null"
+                )
+                out, err, code = self._app._ssh_exec(
+                    ssh, find_cmd, timeout=60)
+
+                if code != 0 and not out.strip():
+                    self.error.emit("SSH Error", err or "Command failed.")
+                    return
+
+                lines = [ln for ln in out.strip().splitlines() if ln.strip()]
+
+                matches = []
+                for line in lines:
+                    info = App._parse_zip(line)
+                    if info is None:
+                        continue
+                    if info["system_id"] not in self._sys_ids:
+                        continue
+                    if (self._serial_filter and
+                            info["serial"] != self._serial_filter):
+                        continue
+                    if not (self._from_dt <= info["dt"] <= self._to_dt):
+                        continue
+                    matches.append(info)
+
+                matches.sort(key=lambda x: (x["dt"], x["system_id"]))
+                self.results_ready.emit(matches)
+
+        except ConnectionError as exc:
+            self.clear_passwords.emit()
+            self.error.emit("Connection Error", str(exc))
+            self.status.emit("Search failed")
+        except Exception as exc:
+            self.error.emit("Error", str(exc))
+            self.status.emit("Search failed")
+        finally:
+            self.finished_work.emit()
+
+
+class BatchDownloadWorker(QThread):
+    progress = pyqtSignal(float)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str, str)
+    success = pyqtSignal(str)
+    clear_passwords = pyqtSignal()
+    finished_work = pyqtSignal()
+
+    def __init__(self, app, paths, dest):
+        super().__init__()
+        self._app = app
+        self._paths = paths
+        self._dest = dest
+
+    def run(self):
+        try:
+            with self._app._open_connection() as ssh:
+                sftp = ssh.open_sftp()
+                try:
+                    total = len(self._paths)
+                    for idx, remote_path in enumerate(self._paths, 1):
+                        fname = os.path.basename(remote_path)
+                        local_file = os.path.join(self._dest, fname)
+
+                        base, ext = os.path.splitext(fname)
+                        counter = 1
+                        while os.path.exists(local_file):
+                            local_file = os.path.join(
+                                self._dest, f"{base}_{counter}{ext}")
+                            counter += 1
+
+                        self.status.emit(
+                            f"Downloading {idx}/{total}: {fname}")
+                        self.progress.emit((idx - 1) / total * 100)
+
+                        sftp.get(remote_path, local_file)
+
+                    self.progress.emit(100)
+                finally:
+                    sftp.close()
+
+            self.success.emit(
+                f"Downloaded {len(self._paths)} file(s) to:\n{self._dest}")
+            self.status.emit("Download complete")
+
+        except ConnectionError as exc:
+            self.clear_passwords.emit()
+            self.error.emit("Connection Error", str(exc))
+            self.status.emit("Download failed")
+            self.progress.emit(0)
+        except Exception as exc:
+            self.error.emit("Error", str(exc))
+            self.status.emit("Download failed")
+            self.progress.emit(0)
+        finally:
+            self.finished_work.emit()
 
 
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------
-class App:
-    def __init__(self, root: ctk.CTk):
-        self.root = root
-        self.root.title("SCP Tool \u2014 Upload / Download / Batch Search")
-        self.root.geometry("940x760")
-        self.root.minsize(700, 560)
+class App(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SCP Tool \u2014 Upload / Download / Batch Search")
+        self.resize(940, 760)
+        self.setMinimumSize(700, 560)
 
         self._current_mode = "dark"
-        _setup_treeview_style("dark")
-        _enable_paste(self.root)
+        self._active_worker = None
 
         # -- passwords (stored in memory only) --------------------------------
         self._relay_pw = None
         self._local_pw = None
 
-        # -- shared variables -------------------------------------------------
-        self.remote_port = tk.StringVar(value="39022")
+        # -- central widget ---------------------------------------------------
+        central = QWidget()
+        central.setObjectName("central")
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(12, 10, 12, 8)
+        main_layout.setSpacing(4)
 
         # -- connection bar ---------------------------------------------------
-        conn_frame = ctk.CTkFrame(root, corner_radius=10)
-        conn_frame.pack(fill="x", padx=12, pady=(10, 4))
+        conn_frame = QFrame()
+        conn_frame.setObjectName("connFrame")
+        conn_layout = QVBoxLayout(conn_frame)
+        conn_layout.setContentsMargins(12, 10, 12, 8)
 
-        top_row = ctk.CTkFrame(conn_frame, fg_color=_FRM_BG)
-        top_row.pack(fill="x", padx=12, pady=(10, 2))
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
 
-        ctk.CTkLabel(top_row, text="Remote Port:",
-                     font=ctk.CTkFont("Segoe UI", 12)).pack(
-            side="left", padx=(0, 6))
-        ctk.CTkEntry(top_row, textvariable=self.remote_port,
-                     width=80, font=ctk.CTkFont("Segoe UI", 12)).pack(
-            side="left", padx=(0, 12))
+        port_label = QLabel("Remote Port:")
+        port_label.setFont(QFont("Segoe UI", 12))
+        top_row.addWidget(port_label)
 
-        ctk.CTkButton(top_row, text="Login", width=110,
-                      command=self._prompt_passwords).pack(
-            side="left", padx=(0, 4))
-        ctk.CTkButton(top_row, text="Logout", width=90,
-                      fg_color="gray40", hover_color="gray50",
-                      command=self._logout).pack(
-            side="left", padx=(0, 12))
+        self.remote_port_edit = QLineEdit("39022")
+        self.remote_port_edit.setFixedWidth(80)
+        self.remote_port_edit.setFont(QFont("Segoe UI", 12))
+        top_row.addWidget(self.remote_port_edit)
+        top_row.addSpacing(6)
 
-        self._auth_var = tk.StringVar(value="Not authenticated")
-        self._auth_label = ctk.CTkLabel(top_row,
-                                        textvariable=self._auth_var,
-                                        text_color=RED,
-                                        font=ctk.CTkFont("Segoe UI", 11))
-        self._auth_label.pack(side="left", padx=4)
+        login_btn = QPushButton("Login")
+        login_btn.setFixedWidth(110)
+        login_btn.clicked.connect(self._prompt_passwords)
+        top_row.addWidget(login_btn)
 
-        # Theme selector (right side of connection bar)
-        self._theme_var = tk.StringVar(value="Dark")
-        theme_menu = ctk.CTkOptionMenu(
-            top_row, values=["Dark", "Light"],
-            variable=self._theme_var,
-            width=90,
-            font=ctk.CTkFont("Segoe UI", 11),
-            command=self._change_theme)
-        theme_menu.pack(side="right", padx=(8, 0))
+        logout_btn = QPushButton("Logout")
+        logout_btn.setObjectName("gray")
+        logout_btn.setFixedWidth(90)
+        logout_btn.clicked.connect(self._logout)
+        top_row.addWidget(logout_btn)
+        top_row.addSpacing(6)
+
+        self._auth_label = QLabel("Not authenticated")
+        self._auth_label.setObjectName("authLabel")
+        self._auth_label.setFont(QFont("Segoe UI", 11))
+        self._auth_label.setStyleSheet(f"color: {RED};")
+        top_row.addWidget(self._auth_label)
+
+        top_row.addStretch()
+
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItems(["Dark", "Light"])
+        self._theme_combo.setFixedWidth(90)
+        self._theme_combo.currentTextChanged.connect(self._change_theme)
+        top_row.addWidget(self._theme_combo)
+
+        conn_layout.addLayout(top_row)
 
         info_text = (f"Jump: {JUMP_DISPLAY}  -->  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
-        ctk.CTkLabel(conn_frame, text=info_text,
-                     text_color=MUTED_FG,
-                     font=ctk.CTkFont("Segoe UI", 9)).pack(
-            anchor="w", padx=14, pady=(0, 8))
+        info_label = QLabel(info_text)
+        info_label.setObjectName("muted")
+        info_label.setFont(QFont("Segoe UI", 9))
+        conn_layout.addWidget(info_label)
 
-        # -- progress bar + status (pack early so they stay at bottom) --------
-        bottom = ctk.CTkFrame(root, fg_color=_ROOT_BG)
-        bottom.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
-
-        self.progress_var = tk.DoubleVar(value=0)
-        self.progress_bar = ctk.CTkProgressBar(bottom, variable=self.progress_var,
-                                                height=8)
-        self.progress_bar.pack(fill="x", pady=(0, 4))
-        self.progress_bar.set(0)
-
-        self.status_var = tk.StringVar(value="Ready")
-        ctk.CTkLabel(bottom, textvariable=self.status_var,
-                     font=ctk.CTkFont("Segoe UI", 10),
-                     text_color=MUTED_FG,
-                     anchor="w").pack(fill="x")
+        main_layout.addWidget(conn_frame)
 
         # -- tabview ----------------------------------------------------------
-        self.tabview = ctk.CTkTabview(root, corner_radius=10)
-        self.tabview.pack(fill="both", expand=True, padx=12, pady=6)
-
-        self.tabview.add("Upload / Download")
-        self.tabview.add("Batch Search")
+        self.tabview = QTabWidget()
+        main_layout.addWidget(self.tabview, stretch=1)
 
         self._build_upload_download_tab()
         self._build_batch_search_tab()
 
-        # Clean shutdown when the user closes the window
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        # -- progress bar + status at bottom ----------------------------------
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        main_layout.addWidget(self.progress_bar)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("muted")
+        self.status_label.setFont(QFont("Segoe UI", 10))
+        main_layout.addWidget(self.status_label)
+
+        # -- apply dark theme -------------------------------------------------
+        self.setStyleSheet(_DARK_QSS)
 
     # -----------------------------------------------------------------------
     # Theme switching
     # -----------------------------------------------------------------------
     def _change_theme(self, choice):
-        """Switch between Dark and Light appearance mode at runtime."""
         mode = choice.lower()
         if mode == self._current_mode:
             return
         self._current_mode = mode
-        ctk.set_appearance_mode(mode)
-        _setup_treeview_style(mode)
-        # Update the Treeview container background to match
-        if hasattr(self, "tree"):
-            parent = self.tree.master
-            bg = _DLG_BG[1] if mode == "dark" else _DLG_BG[0]
-            parent.configure(bg=bg)
+        if mode == "dark":
+            self.setStyleSheet(_DARK_QSS)
+        else:
+            self.setStyleSheet(_LIGHT_QSS)
 
     # -----------------------------------------------------------------------
     # Authentication
     # -----------------------------------------------------------------------
     def _prompt_passwords(self):
-        dlg = PasswordDialog(self.root)
-        if dlg.result is not None:
+        dlg = PasswordDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result:
             self._relay_pw, self._local_pw = dlg.result
-            self._auth_var.set("Authenticated")
-            self._auth_label.configure(text_color=GREEN)
+            self._auth_label.setText("Authenticated")
+            self._auth_label.setStyleSheet(f"color: {GREEN};")
 
     def _ensure_passwords(self):
         if self._relay_pw and self._local_pw:
@@ -371,24 +873,18 @@ class App:
         return bool(self._relay_pw and self._local_pw)
 
     def _logout(self):
-        """Clear stored passwords and update the auth indicator."""
         self._clear_passwords()
-        self.status_var.set("Logged out")
+        self.status_label.setText("Logged out")
 
     def _clear_passwords(self):
         self._relay_pw = None
         self._local_pw = None
-        self.root.after(0, self._update_auth_indicator_disconnected)
+        self._auth_label.setText("Not authenticated")
+        self._auth_label.setStyleSheet(f"color: {RED};")
 
-    def _update_auth_indicator_disconnected(self):
-        self._auth_var.set("Not authenticated")
-        self._auth_label.configure(text_color=RED)
-
-    def _on_close(self):
-        """Handle window close: clear passwords and destroy the root window.
-        Daemon threads are terminated automatically when the main thread exits."""
+    def closeEvent(self, event):
         self._clear_passwords()
-        self.root.destroy()
+        event.accept()
 
     # -----------------------------------------------------------------------
     # Path helpers
@@ -440,7 +936,7 @@ class App:
                 transport.set_keepalive(30)
                 channel = transport.open_channel(
                     "direct-tcpip",
-                    (REMOTE_HOST, int(self.remote_port.get())),
+                    (REMOTE_HOST, int(self.remote_port_edit.text())),
                     ("127.0.0.1", 0),
                 )
             except Exception as exc:
@@ -490,414 +986,444 @@ class App:
         return out, err, code
 
     # -----------------------------------------------------------------------
-    # Progress helpers  (CTkProgressBar uses 0..1 range)
+    # Progress helpers
     # -----------------------------------------------------------------------
     def _set_progress(self, pct):
-        """Set progress bar from a percentage (0-100)."""
-        self.progress_bar.set(pct / 100.0)
+        self.progress_bar.setValue(int(pct))
 
     # -----------------------------------------------------------------------
     # Tab 1 – Upload / Download
     # -----------------------------------------------------------------------
     def _build_upload_download_tab(self):
-        tab = self.tabview.tab("Upload / Download")
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(8)
 
         # Remote path section
-        pf = ctk.CTkFrame(tab, corner_radius=8)
-        pf.pack(fill="x", padx=4, pady=(4, 8))
+        pf = QFrame()
+        pf.setObjectName("sectionFrame")
+        pf_layout = QVBoxLayout(pf)
+        pf_layout.setContentsMargins(12, 8, 12, 8)
 
-        ctk.CTkLabel(pf, text="Remote Linux Path",
-                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
-            anchor="w", padx=12, pady=(8, 2))
-        self.remote_path = tk.StringVar(
-            value="/home/hat/Downloads/pythonscripts/")
-        ctk.CTkEntry(pf, textvariable=self.remote_path,
-                     font=ctk.CTkFont("Segoe UI", 12)).pack(
-            fill="x", padx=12, pady=(0, 2))
-        ctk.CTkLabel(pf,
-                     text=("Upload: destination dir ending with /  "
-                           "|  Download: full file path"),
-                     text_color=MUTED_FG,
-                     font=ctk.CTkFont("Segoe UI", 10)).pack(
-            anchor="w", padx=12, pady=(0, 8))
+        rp_heading = QLabel("Remote Linux Path")
+        rp_heading.setObjectName("heading")
+        rp_heading.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        pf_layout.addWidget(rp_heading)
+
+        self.remote_path_edit = QLineEdit(
+            "/home/hat/Downloads/pythonscripts/")
+        self.remote_path_edit.setFont(QFont("Segoe UI", 12))
+        pf_layout.addWidget(self.remote_path_edit)
+
+        rp_hint = QLabel("Upload: destination dir ending with /  "
+                         "|  Download: full file path")
+        rp_hint.setObjectName("muted")
+        rp_hint.setFont(QFont("Segoe UI", 10))
+        pf_layout.addWidget(rp_hint)
+
+        layout.addWidget(pf)
 
         # Upload section
-        uf = ctk.CTkFrame(tab, corner_radius=8)
-        uf.pack(fill="x", padx=4, pady=(0, 8))
+        uf = QFrame()
+        uf.setObjectName("sectionFrame")
+        uf_layout = QVBoxLayout(uf)
+        uf_layout.setContentsMargins(12, 8, 12, 10)
 
-        ctk.CTkLabel(uf, text="Upload",
-                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
-            anchor="w", padx=12, pady=(8, 4))
+        ul_heading = QLabel("Upload")
+        ul_heading.setObjectName("heading")
+        ul_heading.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        uf_layout.addWidget(ul_heading)
 
-        upload_row = ctk.CTkFrame(uf, fg_color=_FRM2_BG)
-        upload_row.pack(fill="x", padx=12, pady=(0, 4))
+        upload_row = QFrame()
+        upload_row.setObjectName("innerFrame")
+        ur_layout = QHBoxLayout(upload_row)
+        ur_layout.setContentsMargins(8, 6, 8, 6)
 
-        self.file_path = tk.StringVar()
-        ctk.CTkLabel(upload_row, text="Local File:",
-                     font=ctk.CTkFont("Segoe UI", 11), width=80).pack(
-            side="left", padx=(0, 6))
-        ctk.CTkEntry(upload_row, textvariable=self.file_path,
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(upload_row, text="Browse",
-                      width=110, command=self._browse_file).pack(side="right")
+        ur_layout.addWidget(QLabel("Local File:"))
+        self.file_path_edit = QLineEdit()
+        self.file_path_edit.setFont(QFont("Segoe UI", 11))
+        ur_layout.addWidget(self.file_path_edit, stretch=1)
+        browse_file_btn = QPushButton("Browse")
+        browse_file_btn.setFixedWidth(110)
+        browse_file_btn.clicked.connect(self._browse_file)
+        ur_layout.addWidget(browse_file_btn)
 
-        self._upload_btn = ctk.CTkButton(
-            uf, text="UPLOAD", width=180, height=36,
-            fg_color=GREEN, hover_color=GREEN_HOVER,
-            font=ctk.CTkFont("Segoe UI", 12, "bold"),
-            command=self._upload)
-        self._upload_btn.pack(pady=(4, 10))
+        uf_layout.addWidget(upload_row)
+
+        upload_btn_row = QHBoxLayout()
+        upload_btn_row.addStretch()
+        self._upload_btn = QPushButton("UPLOAD")
+        self._upload_btn.setObjectName("green")
+        self._upload_btn.setFixedSize(180, 36)
+        self._upload_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self._upload_btn.clicked.connect(self._upload)
+        upload_btn_row.addWidget(self._upload_btn)
+        upload_btn_row.addStretch()
+        uf_layout.addLayout(upload_btn_row)
+
+        layout.addWidget(uf)
 
         # Download section
-        df = ctk.CTkFrame(tab, corner_radius=8)
-        df.pack(fill="x", padx=4, pady=(0, 4))
+        df = QFrame()
+        df.setObjectName("sectionFrame")
+        df_layout = QVBoxLayout(df)
+        df_layout.setContentsMargins(12, 8, 12, 10)
 
-        ctk.CTkLabel(df, text="Download",
-                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
-            anchor="w", padx=12, pady=(8, 4))
+        dl_heading = QLabel("Download")
+        dl_heading.setObjectName("heading")
+        dl_heading.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        df_layout.addWidget(dl_heading)
 
-        dl_row = ctk.CTkFrame(df, fg_color=_FRM2_BG)
-        dl_row.pack(fill="x", padx=12, pady=(0, 4))
+        dl_row = QFrame()
+        dl_row.setObjectName("innerFrame")
+        dlr_layout = QHBoxLayout(dl_row)
+        dlr_layout.setContentsMargins(8, 6, 8, 6)
 
-        self.local_path = tk.StringVar()
-        ctk.CTkLabel(dl_row, text="Save To:",
-                     font=ctk.CTkFont("Segoe UI", 11), width=80).pack(
-            side="left", padx=(0, 6))
-        ctk.CTkEntry(dl_row, textvariable=self.local_path,
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(dl_row, text="Browse",
-                      width=110, command=self._browse_folder).pack(side="right")
+        dlr_layout.addWidget(QLabel("Save To:"))
+        self.local_path_edit = QLineEdit()
+        self.local_path_edit.setFont(QFont("Segoe UI", 11))
+        dlr_layout.addWidget(self.local_path_edit, stretch=1)
+        browse_folder_btn = QPushButton("Browse")
+        browse_folder_btn.setFixedWidth(110)
+        browse_folder_btn.clicked.connect(self._browse_folder)
+        dlr_layout.addWidget(browse_folder_btn)
 
-        self._download_btn = ctk.CTkButton(
-            df, text="DOWNLOAD", width=180, height=36,
-            fg_color=BLUE, hover_color=BLUE_HOVER,
-            font=ctk.CTkFont("Segoe UI", 12, "bold"),
-            command=self._download)
-        self._download_btn.pack(pady=(4, 10))
+        df_layout.addWidget(dl_row)
+
+        dl_btn_row = QHBoxLayout()
+        dl_btn_row.addStretch()
+        self._download_btn = QPushButton("DOWNLOAD")
+        self._download_btn.setFixedSize(180, 36)
+        self._download_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self._download_btn.clicked.connect(self._download)
+        dl_btn_row.addWidget(self._download_btn)
+        dl_btn_row.addStretch()
+        df_layout.addLayout(dl_btn_row)
+
+        layout.addWidget(df)
+        layout.addStretch()
+
+        self.tabview.addTab(tab, "Upload / Download")
 
     # -----------------------------------------------------------------------
     # Tab 2 – Batch Search
     # -----------------------------------------------------------------------
     def _build_batch_search_tab(self):
-        tab = self.tabview.tab("Batch Search")
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
 
         # -- search criteria --------------------------------------------------
-        cf = ctk.CTkFrame(tab, corner_radius=8)
-        cf.pack(fill="x", padx=4, pady=(4, 6))
+        cf = QFrame()
+        cf.setObjectName("sectionFrame")
+        cf_layout = QVBoxLayout(cf)
+        cf_layout.setContentsMargins(12, 8, 12, 10)
 
-        ctk.CTkLabel(cf, text="Search Criteria",
-                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
-            anchor="w", padx=12, pady=(8, 4))
+        sc_heading = QLabel("Search Criteria")
+        sc_heading.setObjectName("heading")
+        sc_heading.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        cf_layout.addWidget(sc_heading)
 
-        # Date / Time rows
-        dt_frame = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
-        dt_frame.pack(fill="x", padx=12, pady=(0, 4))
+        # Date / Time - FROM row
+        dt_frame = QFrame()
+        dt_frame.setObjectName("innerFrame")
+        dt_layout = QVBoxLayout(dt_frame)
+        dt_layout.setContentsMargins(8, 6, 8, 6)
 
-        # FROM row
-        from_row = ctk.CTkFrame(dt_frame, fg_color=_FRM2_BG)
-        from_row.pack(fill="x", pady=(0, 4))
+        from_row = QHBoxLayout()
+        from_lbl = QLabel("From:")
+        from_lbl.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        from_lbl.setFixedWidth(50)
+        from_row.addWidget(from_lbl)
 
-        ctk.CTkLabel(from_row, text="From:",
-                     font=ctk.CTkFont("Segoe UI", 11, "bold"),
-                     width=50).pack(side="left")
+        self.from_date = QDateEdit()
+        self.from_date.setCalendarPopup(True)
+        self.from_date.setDisplayFormat("dd/MM/yyyy")
+        self.from_date.setDate(QDate.currentDate())
+        self.from_date.setFont(QFont("Segoe UI", 11))
+        self.from_date.setFixedWidth(120)
+        from_row.addWidget(self.from_date)
 
-        if HAS_TKCALENDAR:
-            # DateEntry is a tkinter widget – embed in a tk.Frame
-            date_holder_from = tk.Frame(from_row, bg=_FRM2_BG[1])
-            date_holder_from.pack(side="left", padx=(4, 8))
-            self.from_date = DateEntry(date_holder_from, width=11,
-                                       date_pattern="dd/MM/yyyy",
-                                       font=("Segoe UI", 10))
-            self.from_date.pack()
-        else:
-            self._from_date_var = tk.StringVar(
-                value=datetime.now().strftime("%d/%m/%Y"))
-            ctk.CTkEntry(from_row, textvariable=self._from_date_var,
-                         width=100,
-                         font=ctk.CTkFont("Segoe UI", 11)).pack(
-                side="left", padx=(4, 8))
+        self._from_hour_edit = QLineEdit("00")
+        self._from_hour_edit.setFixedWidth(42)
+        self._from_hour_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._from_hour_edit.setFont(QFont("Segoe UI", 11))
+        from_row.addWidget(self._from_hour_edit)
+        from_row.addWidget(QLabel(":"))
+        self._from_min_edit = QLineEdit("00")
+        self._from_min_edit.setFixedWidth(42)
+        self._from_min_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._from_min_edit.setFont(QFont("Segoe UI", 11))
+        from_row.addWidget(self._from_min_edit)
+        from_row.addStretch()
 
-        self._from_hour_var = tk.StringVar(value="00")
-        ctk.CTkEntry(from_row, textvariable=self._from_hour_var,
-                     width=42, font=ctk.CTkFont("Segoe UI", 11),
-                     justify="center").pack(side="left")
-        ctk.CTkLabel(from_row, text=":", width=10).pack(side="left")
-        self._from_min_var = tk.StringVar(value="00")
-        ctk.CTkEntry(from_row, textvariable=self._from_min_var,
-                     width=42, font=ctk.CTkFont("Segoe UI", 11),
-                     justify="center").pack(side="left")
+        dt_layout.addLayout(from_row)
 
         # TO row
-        to_row = ctk.CTkFrame(dt_frame, fg_color=_FRM2_BG)
-        to_row.pack(fill="x", pady=(0, 4))
+        to_row = QHBoxLayout()
+        to_lbl = QLabel("To:")
+        to_lbl.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        to_lbl.setFixedWidth(50)
+        to_row.addWidget(to_lbl)
 
-        ctk.CTkLabel(to_row, text="To:",
-                     font=ctk.CTkFont("Segoe UI", 11, "bold"),
-                     width=50).pack(side="left")
+        self.to_date = QDateEdit()
+        self.to_date.setCalendarPopup(True)
+        self.to_date.setDisplayFormat("dd/MM/yyyy")
+        self.to_date.setDate(QDate.currentDate())
+        self.to_date.setFont(QFont("Segoe UI", 11))
+        self.to_date.setFixedWidth(120)
+        to_row.addWidget(self.to_date)
 
-        if HAS_TKCALENDAR:
-            date_holder_to = tk.Frame(to_row, bg=_FRM2_BG[1])
-            date_holder_to.pack(side="left", padx=(4, 8))
-            self.to_date = DateEntry(date_holder_to, width=11,
-                                     date_pattern="dd/MM/yyyy",
-                                     font=("Segoe UI", 10))
-            self.to_date.pack()
-        else:
-            self._to_date_var = tk.StringVar(
-                value=datetime.now().strftime("%d/%m/%Y"))
-            ctk.CTkEntry(to_row, textvariable=self._to_date_var,
-                         width=100,
-                         font=ctk.CTkFont("Segoe UI", 11)).pack(
-                side="left", padx=(4, 8))
+        self._to_hour_edit = QLineEdit("23")
+        self._to_hour_edit.setFixedWidth(42)
+        self._to_hour_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._to_hour_edit.setFont(QFont("Segoe UI", 11))
+        to_row.addWidget(self._to_hour_edit)
+        to_row.addWidget(QLabel(":"))
+        self._to_min_edit = QLineEdit("59")
+        self._to_min_edit.setFixedWidth(42)
+        self._to_min_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._to_min_edit.setFont(QFont("Segoe UI", 11))
+        to_row.addWidget(self._to_min_edit)
 
-        self._to_hour_var = tk.StringVar(value="23")
-        ctk.CTkEntry(to_row, textvariable=self._to_hour_var,
-                     width=42, font=ctk.CTkFont("Segoe UI", 11),
-                     justify="center").pack(side="left")
-        ctk.CTkLabel(to_row, text=":", width=10).pack(side="left")
-        self._to_min_var = tk.StringVar(value="59")
-        ctk.CTkEntry(to_row, textvariable=self._to_min_var,
-                     width=42, font=ctk.CTkFont("Segoe UI", 11),
-                     justify="center").pack(side="left")
+        plus1h_btn = QPushButton("+1 h")
+        plus1h_btn.setObjectName("gray")
+        plus1h_btn.setFixedWidth(60)
+        plus1h_btn.clicked.connect(self._set_to_plus_one_hour)
+        to_row.addWidget(plus1h_btn)
+        to_row.addStretch()
 
-        ctk.CTkButton(to_row, text="+1 h", width=60,
-                      fg_color="gray40", hover_color="gray50",
-                      command=self._set_to_plus_one_hour).pack(
-            side="left", padx=(12, 0))
+        dt_layout.addLayout(to_row)
+        cf_layout.addWidget(dt_frame)
 
         # System IDs
-        id_row = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
-        id_row.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkLabel(id_row, text="System IDs*:",
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", padx=(0, 6))
-        self.system_ids_var = tk.StringVar()
-        ctk.CTkEntry(id_row, textvariable=self.system_ids_var,
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkLabel(id_row, text="comma-separated",
-                     text_color=MUTED_FG,
-                     font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
+        id_row_frame = QFrame()
+        id_row_frame.setObjectName("innerFrame")
+        id_layout = QHBoxLayout(id_row_frame)
+        id_layout.setContentsMargins(8, 6, 8, 6)
+        id_label = QLabel("System IDs*:")
+        id_label.setFont(QFont("Segoe UI", 11))
+        id_layout.addWidget(id_label)
+        self.system_ids_edit = QLineEdit()
+        self.system_ids_edit.setFont(QFont("Segoe UI", 11))
+        id_layout.addWidget(self.system_ids_edit, stretch=1)
+        id_hint = QLabel("comma-separated")
+        id_hint.setObjectName("muted")
+        id_hint.setFont(QFont("Segoe UI", 10))
+        id_layout.addWidget(id_hint)
+        cf_layout.addWidget(id_row_frame)
 
         # Serial number
-        sn_row = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
-        sn_row.pack(fill="x", padx=12, pady=(0, 4))
-        ctk.CTkLabel(sn_row, text="Serial Number:",
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", padx=(0, 6))
-        self.serial_var = tk.StringVar()
-        ctk.CTkEntry(sn_row, textvariable=self.serial_var,
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkLabel(sn_row, text="optional", text_color=MUTED_FG,
-                     font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
+        sn_row_frame = QFrame()
+        sn_row_frame.setObjectName("innerFrame")
+        sn_layout = QHBoxLayout(sn_row_frame)
+        sn_layout.setContentsMargins(8, 6, 8, 6)
+        sn_label = QLabel("Serial Number:")
+        sn_label.setFont(QFont("Segoe UI", 11))
+        sn_layout.addWidget(sn_label)
+        self.serial_edit = QLineEdit()
+        self.serial_edit.setFont(QFont("Segoe UI", 11))
+        sn_layout.addWidget(self.serial_edit, stretch=1)
+        sn_hint = QLabel("optional")
+        sn_hint.setObjectName("muted")
+        sn_hint.setFont(QFont("Segoe UI", 10))
+        sn_layout.addWidget(sn_hint)
+        cf_layout.addWidget(sn_row_frame)
 
-        # Search button
-        btn_row = ctk.CTkFrame(cf, fg_color=_FRM2_BG)
-        btn_row.pack(fill="x", padx=12, pady=(2, 10))
-        self._search_btn = ctk.CTkButton(
-            btn_row, text="Search", width=140,
-            fg_color=BLUE, hover_color=BLUE_HOVER,
-            font=ctk.CTkFont("Segoe UI", 12, "bold"),
-            command=self._do_search)
-        self._search_btn.pack(side="left")
-        self._result_count_var = tk.StringVar()
-        ctk.CTkLabel(btn_row, textvariable=self._result_count_var,
-                     font=ctk.CTkFont("Segoe UI", 11, "bold")).pack(
-            side="left", padx=14)
+        # Search button row
+        btn_row_frame = QFrame()
+        btn_row_frame.setObjectName("innerFrame")
+        br_layout = QHBoxLayout(btn_row_frame)
+        br_layout.setContentsMargins(8, 6, 8, 6)
+        self._search_btn = QPushButton("Search")
+        self._search_btn.setFixedWidth(140)
+        self._search_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self._search_btn.clicked.connect(self._do_search)
+        br_layout.addWidget(self._search_btn)
+        self._result_count_label = QLabel("")
+        self._result_count_label.setFont(
+            QFont("Segoe UI", 11, QFont.Weight.Bold))
+        br_layout.addWidget(self._result_count_label)
+        br_layout.addStretch()
+        cf_layout.addWidget(btn_row_frame)
 
-        # -- actions bar (packed before results so always visible) -------------
-        af = ctk.CTkFrame(tab, fg_color=_FRM_BG)
-        af.pack(side="bottom", fill="x", padx=4, pady=(4, 2))
+        layout.addWidget(cf)
 
-        ctk.CTkButton(af, text="Select All", width=90,
-                      fg_color="gray40", hover_color="gray50",
-                      command=self._select_all).pack(
-            side="left", padx=(0, 4))
-        ctk.CTkButton(af, text="Deselect All", width=100,
-                      fg_color="gray40", hover_color="gray50",
-                      command=self._deselect_all).pack(
-            side="left", padx=(0, 12))
+        # -- results (QTableWidget) -------------------------------------------
+        rf = QFrame()
+        rf.setObjectName("sectionFrame")
+        rf_layout = QVBoxLayout(rf)
+        rf_layout.setContentsMargins(12, 8, 12, 8)
 
-        self.dest_var = tk.StringVar()
-        ctk.CTkButton(af, text="Destination", width=120,
-                      command=self._browse_dest).pack(
-            side="left", padx=(0, 4))
-        ctk.CTkEntry(af, textvariable=self.dest_var, width=200,
-                     font=ctk.CTkFont("Segoe UI", 11)).pack(
-            side="left", fill="x", expand=True, padx=(0, 8))
-        self._dl_sel_btn = ctk.CTkButton(
-            af, text="Download Selected", width=170,
-            fg_color=GREEN, hover_color=GREEN_HOVER,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            command=self._download_selected)
-        self._dl_sel_btn.pack(side="right")
+        res_heading = QLabel("Results")
+        res_heading.setObjectName("heading")
+        res_heading.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        rf_layout.addWidget(res_heading)
 
-        # -- results (Treeview – classic ttk widget) --------------------------
-        rf = ctk.CTkFrame(tab, corner_radius=8)
-        rf.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+        self._col_names = ["Filename", "Folder", "Date / Time",
+                           "System ID", "Serial #", "Server Path"]
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(self._col_names)
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSortingEnabled(True)
+        self.table.setAlternatingRowColors(False)
 
-        ctk.CTkLabel(rf, text="Results",
-                     font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
-            anchor="w", padx=12, pady=(8, 2))
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(
+            5, QHeaderView.ResizeMode.Stretch)
 
-        tree_container = tk.Frame(rf, bg=_FRM2_BG[1])
-        tree_container.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.table.setColumnWidth(0, 220)
+        self.table.setColumnWidth(1, 100)
+        self.table.setColumnWidth(2, 150)
+        self.table.setColumnWidth(3, 100)
+        self.table.setColumnWidth(4, 90)
 
-        cols = ("filename", "folder", "datetime", "system_id", "serial",
-                "full_path")
-        self.tree = ttk.Treeview(tree_container, columns=cols,
-                                  show="headings", selectmode="extended",
-                                  style="Dark.Treeview")
+        rf_layout.addWidget(self.table, stretch=1)
+        layout.addWidget(rf, stretch=1)
 
-        for col, label, anc in (("filename", "Filename", "center"),
-                                ("folder", "Folder", "center"),
-                                ("datetime", "Date / Time", "center"),
-                                ("system_id", "System ID", "center"),
-                                ("serial", "Serial #", "center"),
-                                ("full_path", "Server Path", "w")):
-            self.tree.heading(
-                col, text=label, anchor=anc,
-                command=lambda c=col: self._sort_tree(c))
+        # -- actions bar ------------------------------------------------------
+        af = QFrame()
+        af.setObjectName("connFrame")
+        af_layout = QHBoxLayout(af)
+        af_layout.setContentsMargins(8, 6, 8, 6)
 
-        self._sort_col = None
-        self._sort_asc = True
+        sel_all_btn = QPushButton("Select All")
+        sel_all_btn.setObjectName("gray")
+        sel_all_btn.setFixedWidth(90)
+        sel_all_btn.clicked.connect(self._select_all)
+        af_layout.addWidget(sel_all_btn)
 
-        self.tree.column("filename", width=220, minwidth=120, anchor="center")
-        self.tree.column("folder", width=100, minwidth=60, anchor="center")
-        self.tree.column("datetime", width=150, minwidth=100, anchor="center")
-        self.tree.column("system_id", width=100, minwidth=60, anchor="center")
-        self.tree.column("serial", width=90, minwidth=60, anchor="center")
-        self.tree.column("full_path", width=280, minwidth=140, anchor="w")
+        desel_btn = QPushButton("Deselect All")
+        desel_btn.setObjectName("gray")
+        desel_btn.setFixedWidth(100)
+        desel_btn.clicked.connect(self._deselect_all)
+        af_layout.addWidget(desel_btn)
+        af_layout.addSpacing(8)
 
-        vsb = ttk.Scrollbar(tree_container, orient="vertical",
-                            command=self.tree.yview,
-                            style="Dark.Vertical.TScrollbar")
-        hsb = ttk.Scrollbar(tree_container, orient="horizontal",
-                            command=self.tree.xview,
-                            style="Dark.Horizontal.TScrollbar")
-        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        dest_btn = QPushButton("Destination")
+        dest_btn.setFixedWidth(120)
+        dest_btn.clicked.connect(self._browse_dest)
+        af_layout.addWidget(dest_btn)
 
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
-        tree_container.columnconfigure(0, weight=1)
-        tree_container.rowconfigure(0, weight=1)
+        self.dest_edit = QLineEdit()
+        self.dest_edit.setFont(QFont("Segoe UI", 11))
+        af_layout.addWidget(self.dest_edit, stretch=1)
+
+        self._dl_sel_btn = QPushButton("Download Selected")
+        self._dl_sel_btn.setObjectName("green")
+        self._dl_sel_btn.setFixedWidth(170)
+        self._dl_sel_btn.setFont(
+            QFont("Segoe UI", 11, QFont.Weight.Bold))
+        self._dl_sel_btn.clicked.connect(self._download_selected)
+        af_layout.addWidget(self._dl_sel_btn)
+
+        layout.addWidget(af)
+
+        self.tabview.addTab(tab, "Batch Search")
 
     # -----------------------------------------------------------------------
     # Upload / Download helpers
     # -----------------------------------------------------------------------
     def _browse_file(self):
-        p = filedialog.askopenfilename()
+        p, _ = QFileDialog.getOpenFileName(self, "Select File")
         if p:
-            self.file_path.set(p)
+            self.file_path_edit.setText(p)
 
     def _browse_folder(self):
-        p = filedialog.askdirectory()
+        p = QFileDialog.getExistingDirectory(self, "Select Folder")
         if p:
-            self.local_path.set(p)
+            self.local_path_edit.setText(p)
 
     def _browse_dest(self):
-        p = filedialog.askdirectory()
+        p = QFileDialog.getExistingDirectory(self, "Select Destination")
         if p:
-            self.dest_var.set(p)
+            self.dest_edit.setText(p)
 
+    # -----------------------------------------------------------------------
+    # Worker signal helpers
+    # -----------------------------------------------------------------------
+    def _on_worker_error(self, title, message):
+        QMessageBox.critical(self, title, message)
+
+    def _on_worker_success(self, message):
+        QMessageBox.information(self, "Success", message)
+
+    # -----------------------------------------------------------------------
+    # Upload
+    # -----------------------------------------------------------------------
     def _upload(self):
-        local_file = self._normalize_path(self.file_path.get())
+        local_file = self._normalize_path(self.file_path_edit.text())
         if not local_file:
-            messagebox.showerror("Error", "Select a file to upload.")
+            QMessageBox.critical(self, "Error", "Select a file to upload.")
             return
         if not os.path.isfile(local_file):
-            messagebox.showerror("Error", f"File not found:\n{local_file}")
+            QMessageBox.critical(
+                self, "Error", f"File not found:\n{local_file}")
             return
         if not self._ensure_passwords():
             return
 
-        remote_dest = self._normalize_path(self.remote_path.get())
+        remote_dest = self._normalize_path(self.remote_path_edit.text())
         if not remote_dest:
-            messagebox.showerror("Error", "Specify a remote path.")
+            QMessageBox.critical(self, "Error", "Specify a remote path.")
             return
         if remote_dest.endswith("/"):
             remote_dest += os.path.basename(local_file)
 
-        self._upload_btn.configure(state="disabled")
-        self.status_var.set("Connecting for upload...")
+        self._upload_btn.setEnabled(False)
+        self.status_label.setText("Connecting for upload...")
         self._set_progress(0)
-        self.root.update_idletasks()
 
-        def _worker():
-            try:
-                with self._open_connection() as ssh:
-                    sftp = ssh.open_sftp()
-                    try:
-                        # Verify remote directory exists
-                        if "/" in remote_dest:
-                            remote_dir = remote_dest.rsplit("/", 1)[0]
-                        else:
-                            remote_dir = ""
-                        if remote_dir:
-                            try:
-                                sftp.stat(remote_dir)
-                            except FileNotFoundError:
-                                raise IOError(
-                                    f"Remote directory does not exist:\n"
-                                    f"{remote_dir}\n\n"
-                                    f"Create it on the server first.")
+        worker = UploadWorker(self, local_file, remote_dest)
+        worker.progress.connect(self._set_progress)
+        worker.status.connect(self.status_label.setText)
+        worker.error.connect(self._on_worker_error)
+        worker.success.connect(self._on_worker_success)
+        worker.clear_passwords.connect(self._clear_passwords)
+        worker.finished_work.connect(
+            lambda: self._upload_btn.setEnabled(True))
+        self._active_worker = worker
+        worker.start()
 
-                        def _cb(transferred, total):
-                            pct = (transferred / total * 100
-                                   if total > 0 else 0)
-                            self.root.after(0, lambda p=pct: (
-                                self._set_progress(p),
-                                self.status_var.set(
-                                    f"Uploading... {p:.0f}%")))
-
-                        sftp.put(local_file, remote_dest, callback=_cb)
-                    finally:
-                        sftp.close()
-
-                self.root.after(0, lambda: (
-                    messagebox.showinfo(
-                        "Success",
-                        f"Uploaded to:\n{remote_dest}"),
-                    self.status_var.set("Upload complete"),
-                    self._set_progress(100)))
-
-            except ConnectionError as exc:
-                self._clear_passwords()
-                self.root.after(0, lambda: (
-                    messagebox.showerror("Connection Error", str(exc)),
-                    self.status_var.set("Upload failed"),
-                    self._set_progress(0)))
-            except Exception as exc:
-                self.root.after(0, lambda: (
-                    messagebox.showerror("Upload Error", str(exc)),
-                    self.status_var.set("Upload failed"),
-                    self._set_progress(0)))
-            finally:
-                self.root.after(
-                    0, lambda: self._upload_btn.configure(state="normal"))
-
-        threading.Thread(target=_worker, daemon=True).start()
-
+    # -----------------------------------------------------------------------
+    # Download
+    # -----------------------------------------------------------------------
     def _download(self):
-        dest_folder = self._normalize_path(self.local_path.get())
+        dest_folder = self._normalize_path(self.local_path_edit.text())
         if not dest_folder:
-            messagebox.showerror("Error", "Select local destination folder.")
+            QMessageBox.critical(
+                self, "Error", "Select local destination folder.")
             return
         if not os.path.isdir(dest_folder):
-            messagebox.showerror("Error",
-                                 f"Local folder not found:\n{dest_folder}")
+            QMessageBox.critical(
+                self, "Error", f"Local folder not found:\n{dest_folder}")
             return
-        remote_src = self._normalize_path(self.remote_path.get())
+        remote_src = self._normalize_path(self.remote_path_edit.text())
         if not remote_src:
-            messagebox.showerror("Error", "Specify a remote path.")
+            QMessageBox.critical(self, "Error", "Specify a remote path.")
             return
         if remote_src.endswith("/"):
-            messagebox.showerror(
-                "Error",
+            QMessageBox.critical(
+                self, "Error",
                 "Remote path looks like a directory, ends with /.\n"
                 "Please specify the full path to the file to download.")
             return
@@ -906,98 +1432,50 @@ class App:
 
         fname = os.path.basename(remote_src)
         if not fname:
-            messagebox.showerror(
-                "Error",
+            QMessageBox.critical(
+                self, "Error",
                 "Cannot determine filename from the remote path.")
             return
         local_file = os.path.join(dest_folder, fname)
 
-        self._download_btn.configure(state="disabled")
-        self.status_var.set("Connecting for download...")
+        self._download_btn.setEnabled(False)
+        self.status_label.setText("Connecting for download...")
         self._set_progress(0)
-        self.root.update_idletasks()
 
-        def _worker():
-            try:
-                with self._open_connection() as ssh:
-                    sftp = ssh.open_sftp()
-                    try:
-                        try:
-                            sftp.stat(remote_src)
-                        except FileNotFoundError:
-                            raise IOError(
-                                f"Remote file not found:\n{remote_src}")
-
-                        def _cb(transferred, total):
-                            pct = (transferred / total * 100
-                                   if total > 0 else 0)
-                            self.root.after(0, lambda p=pct: (
-                                self._set_progress(p),
-                                self.status_var.set(
-                                    f"Downloading... {p:.0f}%")))
-
-                        sftp.get(remote_src, local_file, callback=_cb)
-                    finally:
-                        sftp.close()
-
-                self.root.after(0, lambda: (
-                    messagebox.showinfo(
-                        "Success",
-                        f"Downloaded to:\n{local_file}"),
-                    self.status_var.set("Download complete"),
-                    self._set_progress(100)))
-
-            except ConnectionError as exc:
-                self._clear_passwords()
-                self.root.after(0, lambda: (
-                    messagebox.showerror("Connection Error", str(exc)),
-                    self.status_var.set("Download failed"),
-                    self._set_progress(0)))
-            except Exception as exc:
-                self.root.after(0, lambda: (
-                    messagebox.showerror("Download Error", str(exc)),
-                    self.status_var.set("Download failed"),
-                    self._set_progress(0)))
-            finally:
-                self.root.after(
-                    0, lambda: self._download_btn.configure(state="normal"))
-
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = DownloadWorker(self, remote_src, local_file)
+        worker.progress.connect(self._set_progress)
+        worker.status.connect(self.status_label.setText)
+        worker.error.connect(self._on_worker_error)
+        worker.success.connect(self._on_worker_success)
+        worker.clear_passwords.connect(self._clear_passwords)
+        worker.finished_work.connect(
+            lambda: self._download_btn.setEnabled(True))
+        self._active_worker = worker
+        worker.start()
 
     # -----------------------------------------------------------------------
     # Date / time helpers
     # -----------------------------------------------------------------------
     def _get_from_dt(self):
-        if HAS_TKCALENDAR:
-            d = self.from_date.get_date()
-        else:
-            d = datetime.strptime(self._from_date_var.get(),
-                                  "%d/%m/%Y").date()
-        return datetime(d.year, d.month, d.day,
-                        int(self._from_hour_var.get()),
-                        int(self._from_min_var.get()))
+        d = self.from_date.date()
+        return datetime(d.year(), d.month(), d.day(),
+                        int(self._from_hour_edit.text()),
+                        int(self._from_min_edit.text()))
 
     def _get_to_dt(self):
-        if HAS_TKCALENDAR:
-            d = self.to_date.get_date()
-        else:
-            d = datetime.strptime(self._to_date_var.get(),
-                                  "%d/%m/%Y").date()
-        return datetime(d.year, d.month, d.day,
-                        int(self._to_hour_var.get()),
-                        int(self._to_min_var.get()))
+        d = self.to_date.date()
+        return datetime(d.year(), d.month(), d.day(),
+                        int(self._to_hour_edit.text()),
+                        int(self._to_min_edit.text()))
 
     def _set_to_plus_one_hour(self):
         try:
             target = self._get_from_dt() + timedelta(hours=1)
         except (ValueError, AttributeError):
             return
-        if HAS_TKCALENDAR:
-            self.to_date.set_date(target.date())
-        else:
-            self._to_date_var.set(target.strftime("%d/%m/%Y"))
-        self._to_hour_var.set(f"{target.hour:02d}")
-        self._to_min_var.set(f"{target.minute:02d}")
+        self.to_date.setDate(QDate(target.year, target.month, target.day))
+        self._to_hour_edit.setText(f"{target.hour:02d}")
+        self._to_min_edit.setText(f"{target.minute:02d}")
 
     # -----------------------------------------------------------------------
     # Filename parser
@@ -1032,269 +1510,153 @@ class App:
     # Search
     # -----------------------------------------------------------------------
     def _do_search(self):
-        raw_ids = self.system_ids_var.get().strip()
+        raw_ids = self.system_ids_edit.text().strip()
         if not raw_ids:
-            messagebox.showerror("Error", "System ID is required.")
+            QMessageBox.critical(self, "Error", "System ID is required.")
             return
 
         sys_ids = {s.strip() for s in raw_ids.split(",") if s.strip()}
-        serial_filter = self.serial_var.get().strip() or None
+        serial_filter = self.serial_edit.text().strip() or None
 
         try:
             from_dt = self._get_from_dt()
             to_dt = self._get_to_dt()
         except ValueError:
-            messagebox.showerror("Error",
-                                 "Invalid date or time.\n"
-                                 "Use dd/mm/yyyy for dates.")
+            QMessageBox.critical(
+                self, "Error",
+                "Invalid date or time.\nUse dd/mm/yyyy for dates.")
             return
 
         if from_dt > to_dt:
-            messagebox.showerror("Error",
-                                 "'From' must be earlier than 'To'.")
+            QMessageBox.critical(
+                self, "Error", "'From' must be earlier than 'To'.")
             return
 
         if not self._ensure_passwords():
             return
 
-        self._search_btn.configure(state="disabled")
-        self.status_var.set("Connecting via SSH...")
+        self._search_btn.setEnabled(False)
+        self.status_label.setText("Connecting via SSH...")
         self._set_progress(0)
-        self.root.update_idletasks()
 
-        def _worker():
-            try:
-                with self._open_connection() as ssh:
-                    self.root.after(
-                        0, lambda: self.status_var.set(
-                            "Searching for zip files..."))
-
-                    find_cmd = (
-                        f"find {shlex.quote(BATCHES_PATH)} "
-                        f"-type f -name '*.zip' 2>/dev/null"
-                    )
-                    out, err, code = self._ssh_exec(ssh, find_cmd, timeout=60)
-
-                    if code != 0 and not out.strip():
-                        self.root.after(0, lambda: messagebox.showerror(
-                            "SSH Error", err or "Command failed."))
-                        return
-
-                    lines = [l for l in out.strip().splitlines() if l.strip()]
-
-                    matches = []
-                    for line in lines:
-                        info = self._parse_zip(line)
-                        if info is None:
-                            continue
-                        if info["system_id"] not in sys_ids:
-                            continue
-                        if serial_filter and info["serial"] != serial_filter:
-                            continue
-                        if not (from_dt <= info["dt"] <= to_dt):
-                            continue
-                        matches.append(info)
-
-                    matches.sort(key=lambda x: (x["dt"], x["system_id"]))
-                    self.root.after(0, self._show_results, matches)
-
-            except ConnectionError as exc:
-                self._clear_passwords()
-                self.root.after(0, lambda: messagebox.showerror(
-                    "Connection Error", str(exc)))
-                self.root.after(
-                    0, lambda: self.status_var.set("Search failed"))
-            except Exception as exc:
-                self.root.after(0, lambda: messagebox.showerror(
-                    "Error", str(exc)))
-                self.root.after(
-                    0, lambda: self.status_var.set("Search failed"))
-            finally:
-                self.root.after(
-                    0, lambda: self._search_btn.configure(state="normal"))
-
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = SearchWorker(self, sys_ids, serial_filter, from_dt, to_dt)
+        worker.status.connect(self.status_label.setText)
+        worker.error.connect(self._on_worker_error)
+        worker.results_ready.connect(self._show_results)
+        worker.clear_passwords.connect(self._clear_passwords)
+        worker.finished_work.connect(
+            lambda: self._search_btn.setEnabled(True))
+        self._active_worker = worker
+        worker.start()
 
     def _show_results(self, matches):
-        for child in self.tree.get_children():
-            self.tree.delete(child)
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
         for m in matches:
-            self.tree.insert("", "end", values=(
-                m["filename"],
-                m["folder"],
-                m["dt"].strftime("%d/%m/%Y %H:%M"),
-                m["system_id"],
-                m["serial"],
-                m["full_path"],
-            ))
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0,
+                               QTableWidgetItem(m["filename"]))
+            self.table.setItem(row, 1,
+                               QTableWidgetItem(m["folder"]))
+            self.table.setItem(row, 2,
+                               QTableWidgetItem(
+                                   m["dt"].strftime("%d/%m/%Y %H:%M")))
+            self.table.setItem(row, 3,
+                               QTableWidgetItem(m["system_id"]))
+            self.table.setItem(row, 4,
+                               QTableWidgetItem(m["serial"]))
+            self.table.setItem(row, 5,
+                               QTableWidgetItem(m["full_path"]))
+
+            for col in range(6):
+                item = self.table.item(row, col)
+                if col < 5:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.table.setSortingEnabled(True)
         n = len(matches)
-        self._result_count_var.set(f"{n} file{'s' if n != 1 else ''} found")
-        self.status_var.set("Search complete")
+        self._result_count_label.setText(
+            f"{n} file{'s' if n != 1 else ''} found")
+        self.status_label.setText("Search complete")
 
     # -----------------------------------------------------------------------
     # Selection helpers
     # -----------------------------------------------------------------------
     def _select_all(self):
-        children = self.tree.get_children()
-        if children:
-            self.tree.selection_set(children)
+        self.table.selectAll()
 
     def _deselect_all(self):
-        self.tree.selection_remove(*self.tree.get_children())
-
-    # -----------------------------------------------------------------------
-    # Column sorting
-    # -----------------------------------------------------------------------
-    def _sort_tree(self, col):
-        if self._sort_col == col:
-            self._sort_asc = not self._sort_asc
-        else:
-            self._sort_col = col
-            self._sort_asc = True
-
-        rows = [(self.tree.set(iid, col), iid) for iid in
-                self.tree.get_children()]
-
-        if col in ("system_id", "serial"):
-            def key_fn(item):
-                try:
-                    return int(item[0])
-                except ValueError:
-                    return item[0]
-        elif col == "datetime":
-            def key_fn(item):
-                try:
-                    return datetime.strptime(item[0], "%d/%m/%Y %H:%M")
-                except ValueError:
-                    return item[0]
-        else:
-            def key_fn(item):
-                return item[0].lower()
-
-        rows.sort(key=key_fn, reverse=not self._sort_asc)
-
-        for idx, (_val, iid) in enumerate(rows):
-            self.tree.move(iid, "", idx)
-
-        arrow = " ^" if self._sort_asc else " v"
-        col_labels = {
-            "filename": ("Filename", "center"),
-            "folder": ("Folder", "center"),
-            "datetime": ("Date / Time", "center"),
-            "system_id": ("System ID", "center"),
-            "serial": ("Serial #", "center"),
-            "full_path": ("Server Path", "w"),
-        }
-        for c, (label, anc) in col_labels.items():
-            suffix = arrow if c == col else ""
-            self.tree.heading(c, text=label + suffix, anchor=anc)
+        self.table.clearSelection()
 
     # -----------------------------------------------------------------------
     # Download selected files
     # -----------------------------------------------------------------------
     def _download_selected(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showerror("Error", "No files selected.")
+        selected_rows = set()
+        for idx in self.table.selectedIndexes():
+            selected_rows.add(idx.row())
+
+        if not selected_rows:
+            QMessageBox.critical(self, "Error", "No files selected.")
             return
 
-        dest = self._normalize_path(self.dest_var.get())
+        dest = self._normalize_path(self.dest_edit.text())
         if not dest:
-            messagebox.showerror("Error",
-                                 "Choose a local destination folder first.")
+            QMessageBox.critical(
+                self, "Error",
+                "Choose a local destination folder first.")
             return
 
         paths = []
-        for iid in selected:
-            vals = self.tree.item(iid, "values")
-            full_path = vals[5]
+        for row in sorted(selected_rows):
+            item = self.table.item(row, 5)
+            if item is None:
+                continue
+            full_path = item.text()
             if not full_path.startswith(BATCHES_PATH):
                 continue
             paths.append(full_path)
 
         if not paths:
-            messagebox.showerror("Error",
-                                 "No valid server paths in selection.")
+            QMessageBox.critical(
+                self, "Error",
+                "No valid server paths in selection.")
             return
 
         if not self._ensure_passwords():
             return
 
-        self._dl_sel_btn.configure(state="disabled")
-        self.status_var.set(
+        self._dl_sel_btn.setEnabled(False)
+        self.status_label.setText(
             f"Preparing download of {len(paths)} file(s)...")
         self._set_progress(0)
-        self.root.update_idletasks()
 
-        def _worker():
-            try:
-                with self._open_connection() as ssh:
-                    sftp = ssh.open_sftp()
-                    try:
-                        total = len(paths)
-                        for idx, remote_path in enumerate(paths, 1):
-                            fname = os.path.basename(remote_path)
-                            local_file = os.path.join(dest, fname)
-
-                            base, ext = os.path.splitext(fname)
-                            counter = 1
-                            while os.path.exists(local_file):
-                                local_file = os.path.join(
-                                    dest, f"{base}_{counter}{ext}")
-                                counter += 1
-
-                            self.root.after(0, lambda i=idx, t=total,
-                                            f=fname: (
-                                self.status_var.set(
-                                    f"Downloading {i}/{t}: {f}"),
-                                self._set_progress(
-                                    (i - 1) / t * 100)))
-
-                            sftp.get(remote_path, local_file)
-
-                        self.root.after(0, lambda: self._set_progress(100))
-                    finally:
-                        sftp.close()
-
-                self.root.after(0, lambda: (
-                    messagebox.showinfo(
-                        "Success",
-                        f"Downloaded {len(paths)} file(s) to:\n{dest}"),
-                    self.status_var.set("Download complete"),
-                    self._set_progress(100)))
-
-            except ConnectionError as exc:
-                self._clear_passwords()
-                self.root.after(0, lambda: (
-                    messagebox.showerror("Connection Error", str(exc)),
-                    self.status_var.set("Download failed"),
-                    self._set_progress(0)))
-            except Exception as exc:
-                self.root.after(0, lambda: (
-                    messagebox.showerror("Error", str(exc)),
-                    self.status_var.set("Download failed"),
-                    self._set_progress(0)))
-            finally:
-                self.root.after(
-                    0, lambda: self._dl_sel_btn.configure(state="normal"))
-
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = BatchDownloadWorker(self, paths, dest)
+        worker.progress.connect(self._set_progress)
+        worker.status.connect(self.status_label.setText)
+        worker.error.connect(self._on_worker_error)
+        worker.success.connect(self._on_worker_success)
+        worker.clear_passwords.connect(self._clear_passwords)
+        worker.finished_work.connect(
+            lambda: self._dl_sel_btn.setEnabled(True))
+        self._active_worker = worker
+        worker.start()
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    app = QApplication(sys.argv)
+
     if paramiko is None:
-        _r = ctk.CTk()
-        _r.withdraw()
-        messagebox.showerror(
-            "Missing Dependency",
+        QMessageBox.critical(
+            None, "Missing Dependency",
             "The 'paramiko' library is required.\n\n"
             "Install it with:\n  pip install paramiko")
-        _r.destroy()
-        raise SystemExit(1)
+        sys.exit(1)
 
-    root = ctk.CTk()
-    App(root)
-    root.mainloop()
+    window = App()
+    window.show()
+    sys.exit(app.exec())
