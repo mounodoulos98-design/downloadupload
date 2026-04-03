@@ -33,6 +33,7 @@ except ImportError:
 JUMP_USER = "gstefanakis"
 JUMP_HOST = "adinsightscons.hat-analytics.net"
 JUMP_PORT = "15930"
+JUMP_DISPLAY = "proxy"            # short label shown in the UI
 
 REMOTE_USER = "hat"
 REMOTE_HOST = "localhost"
@@ -174,7 +175,7 @@ class PasswordDialog(ctk.CTkToplevel):
                      font=ctk.CTkFont("Segoe UI", 12, "bold")).pack(
             anchor="w")
         ctk.CTkLabel(main,
-                     text="proxy",
+                     text=JUMP_DISPLAY,
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
         self.relay_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
@@ -304,7 +305,7 @@ class App:
             command=self._change_theme)
         theme_menu.pack(side="right", padx=(8, 0))
 
-        info_text = (f"Jump: proxy  -->  "
+        info_text = (f"Jump: {JUMP_DISPLAY}  -->  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
         ctk.CTkLabel(conn_frame, text=info_text,
                      text_color=MUTED_FG,
