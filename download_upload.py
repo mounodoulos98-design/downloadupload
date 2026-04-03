@@ -78,13 +78,13 @@ def _setup_treeview_style():
                     background=dark_bg,
                     foreground=dark_fg,
                     fieldbackground=dark_bg,
-                    font=("Segoe UI", 9),
-                    rowheight=26,
+                    font=("Segoe UI", 13),
+                    rowheight=32,
                     borderwidth=0)
     style.configure("Dark.Treeview.Heading",
                     background=heading_bg,
                     foreground="#ecf0f1",
-                    font=("Segoe UI", 9, "bold"),
+                    font=("Segoe UI", 13, "bold"),
                     relief="flat")
     style.map("Dark.Treeview",
               background=[("selected", sel_bg)],
@@ -185,7 +185,7 @@ class PasswordDialog(ctk.CTkToplevel):
         ctk.CTkButton(btn_frame, text="Cancel", width=100,
                       fg_color="gray40", hover_color="gray50",
                       command=self._cancel).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(btn_frame, text="\u2714  Connect", width=140,
+        ctk.CTkButton(btn_frame, text="Connect", width=140,
                       fg_color=GREEN, hover_color=GREEN_HOVER,
                       command=self._ok).pack(side="right")
 
@@ -267,14 +267,14 @@ class App:
                       command=self._prompt_passwords).pack(
             side="left", padx=(0, 12))
 
-        self._auth_var = tk.StringVar(value="\u274C Not authenticated")
+        self._auth_var = tk.StringVar(value="Not authenticated")
         self._auth_label = ctk.CTkLabel(top_row,
                                         textvariable=self._auth_var,
                                         text_color=RED,
                                         font=ctk.CTkFont("Segoe UI", 11))
         self._auth_label.pack(side="left", padx=4)
 
-        info_text = (f"Jump: {JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}  \u2192  "
+        info_text = (f"Jump: {JUMP_USER}@{JUMP_HOST}:{JUMP_PORT}  -->  "
                      f"{REMOTE_USER}@{REMOTE_HOST}:<port>")
         ctk.CTkLabel(conn_frame, text=info_text,
                      text_color=MUTED_FG,
@@ -314,7 +314,7 @@ class App:
         dlg = PasswordDialog(self.root)
         if dlg.result is not None:
             self._relay_pw, self._local_pw = dlg.result
-            self._auth_var.set("\u2705 Authenticated")
+            self._auth_var.set("Authenticated")
             self._auth_label.configure(text_color=GREEN)
 
     def _ensure_passwords(self):
@@ -329,7 +329,7 @@ class App:
         self.root.after(0, self._update_auth_indicator_disconnected)
 
     def _update_auth_indicator_disconnected(self):
-        self._auth_var.set("\u274C Not authenticated")
+        self._auth_var.set("Not authenticated")
         self._auth_label.configure(text_color=RED)
 
     # -----------------------------------------------------------------------
@@ -450,7 +450,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 12)).pack(
             fill="x", padx=12, pady=(0, 2))
         ctk.CTkLabel(pf,
-                     text=("\u2139  Upload: destination dir ending with /  "
+                     text=("Upload: destination dir ending with /  "
                            "|  Download: full file path"),
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(
@@ -460,7 +460,7 @@ class App:
         uf = ctk.CTkFrame(tab, corner_radius=8)
         uf.pack(fill="x", padx=4, pady=(0, 8))
 
-        ctk.CTkLabel(uf, text="\u2B06  Upload",
+        ctk.CTkLabel(uf, text="Upload",
                      font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
             anchor="w", padx=12, pady=(8, 4))
 
@@ -474,11 +474,11 @@ class App:
         ctk.CTkEntry(upload_row, textvariable=self.file_path,
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
             side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(upload_row, text="Browse\u2026",
+        ctk.CTkButton(upload_row, text="Browse",
                       width=110, command=self._browse_file).pack(side="right")
 
         self._upload_btn = ctk.CTkButton(
-            uf, text="\u2B06  UPLOAD", width=180, height=36,
+            uf, text="UPLOAD", width=180, height=36,
             fg_color=GREEN, hover_color=GREEN_HOVER,
             font=ctk.CTkFont("Segoe UI", 12, "bold"),
             command=self._upload)
@@ -488,7 +488,7 @@ class App:
         df = ctk.CTkFrame(tab, corner_radius=8)
         df.pack(fill="x", padx=4, pady=(0, 4))
 
-        ctk.CTkLabel(df, text="\u2B07  Download",
+        ctk.CTkLabel(df, text="Download",
                      font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(
             anchor="w", padx=12, pady=(8, 4))
 
@@ -502,11 +502,11 @@ class App:
         ctk.CTkEntry(dl_row, textvariable=self.local_path,
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
             side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(dl_row, text="Browse\u2026",
+        ctk.CTkButton(dl_row, text="Browse",
                       width=110, command=self._browse_folder).pack(side="right")
 
         self._download_btn = ctk.CTkButton(
-            df, text="\u2B07  DOWNLOAD", width=180, height=36,
+            df, text="DOWNLOAD", width=180, height=36,
             fg_color=BLUE, hover_color=BLUE_HOVER,
             font=ctk.CTkFont("Segoe UI", 12, "bold"),
             command=self._download)
@@ -612,7 +612,7 @@ class App:
         ctk.CTkEntry(id_row, textvariable=self.system_ids_var,
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
             side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkLabel(id_row, text="comma\u2011separated",
+        ctk.CTkLabel(id_row, text="comma-separated",
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(side="left")
 
@@ -664,7 +664,7 @@ class App:
                      font=ctk.CTkFont("Segoe UI", 11)).pack(
             side="left", fill="x", expand=True, padx=(0, 8))
         self._dl_sel_btn = ctk.CTkButton(
-            af, text="\u2B07  Download Selected", width=170,
+            af, text="Download Selected", width=170,
             fg_color=GREEN, hover_color=GREEN_HOVER,
             font=ctk.CTkFont("Segoe UI", 11, "bold"),
             command=self._download_selected)
@@ -687,25 +687,25 @@ class App:
                                   show="headings", selectmode="extended",
                                   style="Dark.Treeview")
 
-        for col, label in (("filename", "Filename"),
-                           ("folder", "Folder"),
-                           ("datetime", "Date / Time"),
-                           ("system_id", "System ID"),
-                           ("serial", "Serial #"),
-                           ("full_path", "Server Path")):
+        for col, label, anc in (("filename", "Filename", "center"),
+                                ("folder", "Folder", "center"),
+                                ("datetime", "Date / Time", "center"),
+                                ("system_id", "System ID", "center"),
+                                ("serial", "Serial #", "center"),
+                                ("full_path", "Server Path", "w")):
             self.tree.heading(
-                col, text=label,
+                col, text=label, anchor=anc,
                 command=lambda c=col: self._sort_tree(c))
 
         self._sort_col = None
         self._sort_asc = True
 
-        self.tree.column("filename", width=200, minwidth=120)
-        self.tree.column("folder", width=80, minwidth=50)
-        self.tree.column("datetime", width=120, minwidth=90)
-        self.tree.column("system_id", width=80, minwidth=50)
-        self.tree.column("serial", width=70, minwidth=50)
-        self.tree.column("full_path", width=240, minwidth=140)
+        self.tree.column("filename", width=220, minwidth=120, anchor="center")
+        self.tree.column("folder", width=100, minwidth=60, anchor="center")
+        self.tree.column("datetime", width=150, minwidth=100, anchor="center")
+        self.tree.column("system_id", width=100, minwidth=60, anchor="center")
+        self.tree.column("serial", width=90, minwidth=60, anchor="center")
+        self.tree.column("full_path", width=280, minwidth=140, anchor="w")
 
         vsb = ttk.Scrollbar(tree_container, orient="vertical",
                             command=self.tree.yview,
@@ -758,7 +758,7 @@ class App:
             remote_dest += os.path.basename(local_file)
 
         self._upload_btn.configure(state="disabled")
-        self.status_var.set("Connecting for upload \u2026")
+        self.status_var.set("Connecting for upload...")
         self._set_progress(0)
         self.root.update_idletasks()
 
@@ -787,7 +787,7 @@ class App:
                             self.root.after(0, lambda p=pct: (
                                 self._set_progress(p),
                                 self.status_var.set(
-                                    f"Uploading\u2026 {p:.0f}%")))
+                                    f"Uploading... {p:.0f}%")))
 
                         sftp.put(local_file, remote_dest, callback=_cb)
                     finally:
@@ -833,7 +833,7 @@ class App:
         if remote_src.endswith("/"):
             messagebox.showerror(
                 "Error",
-                "Remote path looks like a directory (ends with /).\n"
+                "Remote path looks like a directory, ends with /.\n"
                 "Please specify the full path to the file to download.")
             return
         if not self._ensure_passwords():
@@ -848,7 +848,7 @@ class App:
         local_file = os.path.join(dest_folder, fname)
 
         self._download_btn.configure(state="disabled")
-        self.status_var.set("Connecting for download \u2026")
+        self.status_var.set("Connecting for download...")
         self._set_progress(0)
         self.root.update_idletasks()
 
@@ -869,7 +869,7 @@ class App:
                             self.root.after(0, lambda p=pct: (
                                 self._set_progress(p),
                                 self.status_var.set(
-                                    f"Downloading\u2026 {p:.0f}%")))
+                                    f"Downloading... {p:.0f}%")))
 
                         sftp.get(remote_src, local_file, callback=_cb)
                     finally:
@@ -993,7 +993,7 @@ class App:
             return
 
         self._search_btn.configure(state="disabled")
-        self.status_var.set("Connecting via SSH \u2026")
+        self.status_var.set("Connecting via SSH...")
         self._set_progress(0)
         self.root.update_idletasks()
 
@@ -1002,7 +1002,7 @@ class App:
                 with self._open_connection() as ssh:
                     self.root.after(
                         0, lambda: self.status_var.set(
-                            "Searching for zip files \u2026"))
+                            "Searching for zip files..."))
 
                     find_cmd = (
                         f"find {shlex.quote(BATCHES_PATH)} "
@@ -1111,18 +1111,18 @@ class App:
         for idx, (_val, iid) in enumerate(rows):
             self.tree.move(iid, "", idx)
 
-        arrow = " \u25B2" if self._sort_asc else " \u25BC"
+        arrow = " ^" if self._sort_asc else " v"
         col_labels = {
-            "filename": "Filename",
-            "folder": "Folder",
-            "datetime": "Date / Time",
-            "system_id": "System ID",
-            "serial": "Serial #",
-            "full_path": "Server Path",
+            "filename": ("Filename", "center"),
+            "folder": ("Folder", "center"),
+            "datetime": ("Date / Time", "center"),
+            "system_id": ("System ID", "center"),
+            "serial": ("Serial #", "center"),
+            "full_path": ("Server Path", "w"),
         }
-        for c, label in col_labels.items():
+        for c, (label, anc) in col_labels.items():
             suffix = arrow if c == col else ""
-            self.tree.heading(c, text=label + suffix)
+            self.tree.heading(c, text=label + suffix, anchor=anc)
 
     # -----------------------------------------------------------------------
     # Download selected files
@@ -1157,7 +1157,7 @@ class App:
 
         self._dl_sel_btn.configure(state="disabled")
         self.status_var.set(
-            f"Preparing download of {len(paths)} file(s) \u2026")
+            f"Preparing download of {len(paths)} file(s)...")
         self._set_progress(0)
         self.root.update_idletasks()
 
