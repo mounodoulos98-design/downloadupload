@@ -203,7 +203,8 @@ class PasswordDialog(ctk.CTkToplevel):
                      text=JUMP_DISPLAY,
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
-        self.relay_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
+        self.relay_entry = ctk.CTkEntry(main, show="\u25CF",
+                                        width=int(round(340 * _DPI_SCALE)),
                                         font=ctk.CTkFont("Segoe UI", 12))
         self.relay_entry.pack(fill="x", pady=(6, 14))
 
@@ -215,7 +216,8 @@ class PasswordDialog(ctk.CTkToplevel):
                      text=f"{REMOTE_USER}@{REMOTE_HOST}:<port>",
                      text_color=MUTED_FG,
                      font=ctk.CTkFont("Segoe UI", 10)).pack(anchor="w")
-        self.local_entry = ctk.CTkEntry(main, show="\u25CF", width=340,
+        self.local_entry = ctk.CTkEntry(main, show="\u25CF",
+                                        width=int(round(340 * _DPI_SCALE)),
                                         font=ctk.CTkFont("Segoe UI", 12))
         self.local_entry.pack(fill="x", pady=(6, 20))
 
